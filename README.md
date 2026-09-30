@@ -21,6 +21,10 @@ The design principles are in [`docs/TENETS.md`](docs/TENETS.md). In short:
 7. **Reading is left to right, one finger.** In Lily Pad Hop he drags the frog under the letters and each letter sounds as the frog reaches it. It can't skip ahead. In Story Barn a ladybug slides under the words. Only the first finger counts, so palms and stray taps elsewhere are ignored. Leaving a lesson requires pressing and holding the mountain button.
 8. **No guessing from pictures.** Picture choices appear only after the word has been sounded out. The wrong-answer pictures differ from the right one by one sound (cat, cap, can).
 
+## The 3D world
+
+`world3d.js` (three.js, loaded from jsdelivr) draws the alpine valley: snowy peaks in warm haze, a buttercup meadow, spruce forests, a Falu-red barn and a pond. It renders the backdrop behind the map and every lesson, and the live 3D farm where earned animals graze, walk and hop, and where a newly earned animal gallops in through the gate. Drag to look around; tap an animal to hear it. Models are Quaternius CC0 packs in `assets/` (animals converted from Blender/FBX and compressed with meshopt). If WebGL or the network isn't available, the game falls back to the flat 2D scenery. `tools/world3d-demo.html` is a standalone demo; screenshots are in `docs/world3d/`.
+
 ## Rewards
 
 - **Stars:** 2 for a first-try correct answer, 1 after a retry, and bonuses for mastering a step or a level.

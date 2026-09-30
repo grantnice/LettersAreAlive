@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>World3D demo</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #bcd6f0; font-family: system-ui, sans-serif; overflow: hidden; }
+  #farm { position: fixed; inset: 0; }
+  #ui { position: fixed; left: 8px; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 16px); }
+  #ui button, #ui label { background: rgba(255,255,255,.85); border: 0; border-radius: 10px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+  #msg { position: fixed; left: 8px; bottom: 8px; z-index: 5; background: rgba(255,255,255,.85); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+  #bd { position: fixed; inset: 0; z-index: 4; background-size: cover; background-position: center; display: none; }
+  body.hideui #ui, body.hideui #msg { display: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="farm"></div>
+<div id="bd"></div>
+<div id="ui">
+  <button id="more">+ animal</button>
+  <button id="less">− animal</button>
+  <button id="arrive">Arrive next</button>
+  <button id="allitems">All items</button>
+  <button id="noitems">No items</button>
+  <button data-bd="map">Backdrop: map</button>
+  <button data-bd="meadow">Backdrop: meadow</button>
+  <button data-bd="pond">Backdrop: pond</button>
+</div>
+<div id="msg">Loading…</div>
+<script type="module">
+import World3D, { WORLD_ANIMALS } from '../world3d.js';
+const q = new URLSearchParams(location.search);
+const msg = document.getElementById('msg');
+if (q.has('hideui')) document.body.classList.add('hideui');
+const ALL_ITEMS = ['flowers', 'flowers', 'flowers', 'tulips', 'tulips', 'fir', 'fir', 'hay', 'hay', 'wood', 'sunflower', 'sunflower', 'apple', 'apple', 'tractor', 'balloon', 'balloon', 'kite', 'house', 'rainbow'];
+let n = +(q.get('n') ?? 17);
+let items = q.get('items') === 'none' ? [] : q.get('items') === 'all' || !q.has('items') ? ALL_ITEMS.slice() : q.get('items').split(',');
+const range = (k) => [...Array(k).keys()];
+
+window.W3D_READY = false;
+if (!World3D.supported()) { msg.textContent = 'WebGL2 not supported'; }
+else if (q.get('backdrop')) {
+  const t0 = performance.now();
+  const url = await World3D.renderBackdrop(innerWidth, innerHeight, q.get('backdrop'));
+  const bd = document.getElementById('bd'); bd.style.display = 'block'; bd.style.backgroundImage = `url(${url})`;
+  window.W3D_BACKDROP_MS = performance.now() - t0;
+  msg.textContent = `backdrop ${q.get('backdrop')} in ${Math.round(window.W3D_BACKDROP_MS)} ms, ${Math.round(url.length / 1024)} KB`;
+  window.W3D_READY = true;
+} else {
+  const arriving = q.has('arrive') ? +q.get('arrive') : undefined;
+  const farm = World3D.mountFarm(document.getElementById('farm'), {
+    animals: range(n), items, arriving, quality: q.get('quality') || undefined,
+    onAnimalTap: (i) => { msg.textContent = `Tapped ${WORLD_ANIMALS[i].displayName}`; },
+  });
+  window.farm = farm;
+  await farm.ready; await farm.update({});
+  msg.textContent = `${n} animals, ${items.length} items`;
+  window.W3D_READY = true;
+  document.getElementById('more').onclick = () => { if (n < 17) { n++; farm.update({ animals: range(n), arriving: n - 1 }); } };
+  document.getElementById('less').onclick = () => { if (n > 0) { n--; farm.update({ animals: range(n) }); } };
+  document.getElementById('arrive').onclick = () => { farm.update({ arriving: Math.max(0, n - 1) }); };
+  document.getElementById('allitems').onclick = () => farm.update({ items: ALL_ITEMS.slice() });
+  document.getElementById('noitems').onclick = () => farm.update({ items: [] });
+}
+for (const b of document.querySelectorAll('[data-bd]')) b.onclick = async () => {
+  const t0 = performance.now();
+  const url = await World3D.renderBackdrop(innerWidth, innerHeight, b.dataset.bd);
+  const bd = document.getElementById('bd'); bd.style.display = 'block'; bd.style.backgroundImage = `url(${url})`;
+  msg.textContent = `backdrop ${b.dataset.bd}: ${Math.round(performance.now() - t0)} ms (tap to close)`;
+  bd.onclick = () => { bd.style.display = 'none'; };
+};
+</script>
+</body>
+</html>

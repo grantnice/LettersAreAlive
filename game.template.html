@@ -26,6 +26,12 @@ button:focus-visible { outline: 4px solid var(--sv-yellow); outline-offset: 3px;
 
 #app { position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 #scenery { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+#backdrop { position: absolute; inset: 0; z-index: 1; background-size: cover; background-position: center bottom; opacity: 0; transition: opacity .7s ease; pointer-events: none; }
+#backdrop.on { opacity: 1; }
+.farm3d { position: relative; z-index: 2; flex: 1; min-height: 0; width: 100%; touch-action: none; }
+.farm3d canvas { display: block; width: 100% !important; height: 100% !important; }
+.farm-tag { position: absolute; z-index: 6; top: 84px; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none; }
+.stage > .sub { background: rgba(255,251,242,.88); padding: 2px 14px; border-radius: 14px; }
 .cloud { position: absolute; z-index: 0; width: 180px; height: 52px; background: var(--snow); border-radius: 40px; opacity: .85;
   animation: drift 90s linear infinite; }
 .cloud::before, .cloud::after { content: ""; position: absolute; background: var(--snow); border-radius: 50%; }
@@ -248,6 +254,16 @@ select.pbtn { font-size: 16px; }
 </style>
 
 <div id="app"></div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+  import World3D from "./world3d.js";
+  window.dispatchEvent(new Event("world3d-ready"));
+</script>
 
 <script>
 "use strict";
@@ -586,10 +602,39 @@ function screen(variant, ...kids) {
   hush();
   Mic.stop();
   if (!screen.keepStudio) Studio.close();
-  app.innerHTML = scenery(variant);
+  if (farm3d) { try { farm3d.destroy(); } catch {} farm3d = null; }
+  app.innerHTML = scenery(variant) + '<div id="backdrop"></div>';
   app.append(...kids);
+  screen.variant = variant;
+  showBackdrop(variant);
   return screenGen;
 }
+
+/* 3D world (world3d.js): painted backdrops of the alpine valley behind every screen, and the live
+   3D farm. Everything falls back to the flat 2D scenery if WebGL or the module isn't available. */
+let farm3d = null;
+const has3D = () => !!(window.World3D && window.World3D.supported());
+const BACKDROPS = {};
+let backdropQueue = Promise.resolve();
+function showBackdrop(variant) {
+  if (!has3D() || variant === "farm") return;
+  const v = variant === "map" ? "map" : variant === "pond" ? "pond" : "meadow";
+  const w = Math.ceil(innerWidth / 64) * 64, ht = Math.ceil(innerHeight / 64) * 64, key = `${v}:${w}x${ht}`;
+  if (!BACKDROPS[key]) {
+    // one render at a time; each is cached for the rest of the session
+    BACKDROPS[key] = backdropQueue = backdropQueue.then(() => window.World3D.renderBackdrop(w, ht, v)).catch(() => null);
+  }
+  const gen = screenGen;
+  BACKDROPS[key].then(url => {
+    const el = $("#backdrop");
+    if (!url || !el || gen !== screenGen) return;
+    el.style.backgroundImage = `url(${url})`;
+    requestAnimationFrame(() => el.classList.add("on"));
+  });
+}
+window.addEventListener("world3d-ready", () => { if (screen.variant) showBackdrop(screen.variant); });
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => screen.variant && showBackdrop(screen.variant), 400); });
 function bar(left, center, right) {
   return h("div", { class: "bar" }, left, h("div", { class: "grow" }, center), right);
 }
@@ -769,7 +814,7 @@ function showResult(n, stage, stageIndex, good, total, pass, levelUp) {
   }
   const next = pass ? (levelUp ? () => showLevel(Math.min(LEVELS.length, n + 1)) : () => showLevel(n)) : () => runStage(n, stage, stageIndex);
   kids.push(h("div", { style: "display:flex;gap:14px;flex-wrap:wrap;justify-content:center" },
-    levelUp ? h("button", { class: "big-btn blue", onclick: showFarm }, "Visit the farm") : null,
+    levelUp ? h("button", { class: "big-btn blue", onclick: () => showFarm(n - 1) }, "Visit the farm") : null,
     h("button", { class: "big-btn", onclick: next }, pass ? "Keep climbing" : "Practice again")));
   screen("meadow", bar(homeBtn(), null, starChip()), h("div", { class: "stage result card-free" }, ...kids));
   if (pass) { confetti(levelUp ? 40 : 20); arpeggio(); }
@@ -1187,7 +1232,8 @@ const SHOP = [
   { id: "apple", e: "🍎", cost: 30 }, { id: "tractor", e: "🚜", cost: 80 }, { id: "balloon", e: "🎈", cost: 40 },
   { id: "kite", e: "🪁", cost: 50 }, { id: "house", e: "🏡", cost: 120 }, { id: "rainbow", e: "🌈", cost: 150 },
 ];
-function showFarm() {
+function showFarm(arriving) {
+  if (has3D()) return showFarm3D(typeof arriving === "number" ? arriving : undefined);
   const farm = h("div", { class: "farm" });
   farm.innerHTML = `<svg class="barn" viewBox="0 0 300 240" aria-hidden="true">
     <path d="M20,100 L150,20 L280,100 Z" fill="#3b2f2a"/><rect x="36" y="92" width="228" height="140" fill="var(--falu)"/>
@@ -1211,6 +1257,41 @@ function showFarm() {
     s.e, h("small", null, "⭐" + s.cost))));
   screen("farm", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu)" }, "My Farm"), starChip()), farm, shop);
 }
+
+function shopBar(onBuy) {
+  const shop = h("div", { class: "shop", "aria-label": "Farm shop" });
+  const draw = () => shop.replaceChildren(...SHOP.map(s => h("button", {
+    disabled: S.stars < s.cost, "aria-label": `Buy ${s.id} for ${s.cost} stars`,
+    onclick: () => { if (S.stars < s.cost) return; addStars(-s.cost); S.items.push({ id: s.id, x: 8 + rand(84), y: 30 + rand(55) }); save(); arpeggio(); draw(); onBuy(); } },
+    s.e, h("small", null, "⭐" + s.cost))));
+  draw();
+  return shop;
+}
+function showFarm3D(arriving) {
+  const host = h("div", { class: "farm3d" });
+  const tag = h("div", { class: "bubble farm-tag", hidden: true });
+  const loading = h("div", { class: "bubble farm-tag" }, "Opening the farm…");
+  const empty = S.animals.length ? null : h("div", { class: "bubble farm-tag", style: "top:auto;bottom:120px" }, "Your farm is waiting for friends. Master Level 1 and a Gotland sheep will move in!");
+  let tagTimer = null;
+  const shop = shopBar(() => farm3d && farm3d.update({ animals: S.animals, items: S.items.map(i => i.id) }));
+  const gen = screen("farm", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu);text-shadow:0 2px 0 var(--snow)" }, "My Farm"), starChip()), host, tag, loading, empty, shop);
+  try {
+    farm3d = window.World3D.mountFarm(host, {
+      animals: S.animals, items: S.items.map(i => i.id), arriving,
+      onAnimalTap: i => {
+        say("a_" + i);
+        tag.textContent = `${LEVELS[i].animal.e} ${LEVELS[i].animal.name}`; tag.hidden = false;
+        clearTimeout(tagTimer); tagTimer = setTimeout(() => { tag.hidden = true; }, 2500);
+      },
+    });
+    Promise.resolve(farm3d.ready).then(() => {
+      if (gen !== screenGen) return;
+      loading.remove();
+      if (typeof arriving === "number") { say("a_" + arriving); tag.textContent = `${LEVELS[arriving].animal.e} Welcome, ${LEVELS[arriving].animal.name}!`; tag.hidden = false; }
+    }).catch(() => loading.remove());
+  } catch { farm3d = null; screen.variant = null; return showFarmFlat(); }
+}
+function showFarmFlat() { const keep = window.World3D; window.World3D = null; try { showFarm(); } finally { window.World3D = keep; } }
 
 /* ---------------- songs ---------------- */
 // melodies as [midi, beats, syllable]; words in {braces} are readable words he can tap
