@@ -1223,7 +1223,7 @@ function frogSong() {
 }
 function macdonald() {
   const friends = S.animals.length ? S.animals.slice(-4) : [0];
-  const names = { 0: ["sheep", "baa"], 1: ["hen", "cluck"], 2: ["cow", "moo"], 3: ["pig", "oink"], 4: ["goat", "maa"], 5: ["pony", "neigh"], 6: ["duck", "quack"], 7: ["cat", "meow"], 8: ["dog", "woof"], 9: ["rab", "thump"], 10: ["goose", "honk"], 11: ["frog", "rib"], 12: ["bee", "buzz"], 13: ["hog", "snuff"], 14: ["horse", "clip"], 15: ["deer", "snort"], 16: ["moose", "hrrm"] };
+  const names = Object.fromEntries(LEVELS.map((l, i) => [i, [l.animal.short, l.animal.noise.split(" ")[0]]]));
   const eieio = [[B, 1, "E"], [B, 1, "I"], [A, 1, "E"], [A, 1, "I"], [G, 2, "O"]];
   const lines = [];
   for (const f of friends) {

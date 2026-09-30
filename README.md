@@ -24,7 +24,7 @@ The design principles are in [`docs/TENETS.md`](docs/TENETS.md). In short:
 ## Rewards
 
 - **Stars:** 2 for a first-try correct answer, 1 after a retry, and bonuses for mastering a step or a level.
-- **Animals:** 17 Swedish farm animals, one per level: Gotland sheep, flower hen, Fjällko mountain cow, Linderöd pig, and more. They wander the farm and talk when tapped.
+- **Animals:** 17 animated 3D animals (Quaternius, CC0), one per level: Gotland sheep, Fjällko cow, Linderöd pig, Gotland pony, donkey, farm dog, llama, alpaca, roe deer, red fox, pug, bull, husky, white horse, red deer stag, grey wolf and a zebra. They wander the farm and talk when tapped.
 - **Farm shop:** spend stars on flowers, fir trees, hay, a tractor and more.
 - **Sing Along:**
   - "Little Frog on a Log" (to the tune of Twinkle Twinkle)

@@ -133,15 +133,15 @@ SENTENCE_WORDS = ["in", "and", "an", "c-r-ow-n"]
 
 # one friend joins the farm for each mastered level
 ANIMALS = [
-    ("🐑", "Gotland sheep", "baa baa"), ("🐔", "Swedish flower hen", "cluck cluck"),
-    ("🐄", "Fjällko mountain cow", "moo"), ("🐖", "Linderöd pig", "oink oink"),
-    ("🐐", "Göinge goat", "maa maa"), ("🐴", "Gotland pony", "neigh"),
-    ("🦆", "Swedish blue duck", "quack quack"), ("🐈", "Barn cat", "meow"),
-    ("🐕", "Swedish Vallhund", "woof woof"), ("🐇", "Gotland rabbit", "thump thump"),
-    ("🪿", "Skåne goose", "honk honk"), ("🐸", "Pond frog", "ribbit ribbit"),
-    ("🐝", "Honey bees", "buzz buzz"), ("🦔", "Hedgehog", "snuffle snuffle"),
-    ("🐎", "Dala horse", "clip clop"), ("🦌", "Reindeer", "snort snort"),
-    ("🫎", "Moose", "hrrumph"),
+    ("🐑", "Gotland sheep", "baa baa", "sheep"), ("🐄", "Fjällko mountain cow", "moo", "cow"),
+    ("🐖", "Linderöd pig", "oink oink", "pig"), ("🐴", "Gotland pony", "neigh", "pony"),
+    ("🫏", "Donkey", "hee haw", "donkey"), ("🐕", "Farm dog", "woof woof", "dog"),
+    ("🦙", "Llama", "hum hum", "llama"), ("🦙", "Alpaca", "hum hum", "alpaca"),
+    ("🦌", "Roe deer", "bleat bleat", "deer"), ("🦊", "Red fox", "yip yip", "fox"),
+    ("🐶", "Pug", "snort snort", "pug"), ("🐂", "Bull", "moo", "bull"),
+    ("🐺", "Husky sled dog", "awoo", "husky"), ("🐎", "White horse", "neigh", "horse"),
+    ("🦌", "Red deer stag", "bellow", "stag"), ("🐺", "Grey wolf", "howl", "wolf"),
+    ("🦓", "Zebra", "whinny", "zebra"),
 ]
 
 # listening warm-up (no letters): hear two words, pick the pictures in that order ("dog fish" vs "fish dog")
@@ -206,13 +206,13 @@ def build_data():
     validate(LEVELS)
     levels = []
     for n, lv in enumerate(LEVELS, 1):
-        emoji, breed, noise = ANIMALS[n - 1]
+        emoji, breed, noise, short = ANIMALS[n - 1]
         levels.append({
             "n": n, "title": lv["title"], "note": lv.get("note", ""),
             "sounds": [sound(s) for s in lv["sounds"]],
             "words": [{"w": word_of(s), "t": tiles(s)} for s in lv["words"]],
             "hearts": lv.get("hearts", []),
-            "animal": {"e": emoji, "name": breed, "noise": noise},
+            "animal": {"e": emoji, "name": breed, "noise": noise, "short": short},
         })
     sentences = [{"s": s, "yes": a, "no": b} for s, a, b in SENTENCES]
     extra = [{"w": word_of(s), "t": tiles(s)} for s in SENTENCE_WORDS]
@@ -240,8 +240,9 @@ def clips(data):
         out[f"s_{i}"] = (s[0].capitalize() + ".", "word")
     for k, text in PROMPTS.items():
         out[f"q_{k}"] = (text, "word")
-    for i, (_, breed, noise) in enumerate(ANIMALS):
-        out[f"a_{i}"] = (f"{noise.capitalize()}! I'm a {breed}.", "word")
+    for i, (_, breed, noise, _short) in enumerate(ANIMALS):
+        article = "an" if breed[0].lower() in "aeiou" else "a"
+        out[f"a_{i}"] = (f"{noise.capitalize()}! I'm {article} {breed}.", "word")
     return out
 
 
