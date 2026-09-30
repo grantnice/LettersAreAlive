@@ -16,6 +16,7 @@
   --font-read: "Andika", "Century Gothic", "Avenir Next", system-ui, sans-serif;
   color-scheme: light;
 }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--sky-lo); color: var(--ink); font-family: var(--font-display);
   overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
@@ -99,6 +100,8 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
   background: radial-gradient(circle at 35% 30%, #fff 0 18%, #f7ecd8 60%, #e8d6b5); border: 4px solid #d8c29c;
   font-family: var(--font-read); font-weight: 700; font-size: clamp(46px, 7vw, 64px); display: grid; place-items: center;
   box-shadow: 0 8px 0 rgba(0,0,0,.1); }
+.glow { box-shadow: 0 0 0 6px var(--sv-yellow), 0 0 28px 8px rgba(254,204,2,.8) !important; animation: bob 1s ease-in-out infinite; }
+.flower.glow { border-radius: 50%; }
 .egg.cracked { background: radial-gradient(circle at 35% 30%, #fffbe0, #ffe27a); border-color: var(--sv-yellow); }
 
 /* ---- pond hop ---- */
@@ -206,6 +209,8 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .pbtn { padding: 10px 16px; border-radius: 12px; background: var(--snow); border: 2px solid var(--paper-edge); font-weight: 700; font-family: system-ui; }
 .pbtn.danger { border-color: var(--miss); color: var(--miss); }
 select.pbtn { font-size: 16px; }
+.leave-ask { position: absolute; top: 64px; left: 0; z-index: 20; display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  background: var(--paper); border: 3px solid var(--paper-edge); border-radius: 16px; padding: 8px 10px; font-size: 18px; box-shadow: 0 6px 0 rgba(0,0,0,.1); }
 .hold-ring { position: absolute; inset: -4px; border-radius: 50%; border: 4px solid var(--falu); clip-path: inset(0 100% 0 0); }
 .hold-ring.go { transition: clip-path var(--hold, 1.5s) linear; clip-path: inset(0 0 0 0); }
 
@@ -487,16 +492,14 @@ function bar(left, center, right) {
 }
 const starChip = () => h("span", { class: "chip", id: "stars" }, "⭐ ", h("span", null, S.stars));
 function addStars(n) { S.stars += n; save(); const el = $("#stars span"); if (el) { el.textContent = S.stars; el.parentElement.classList.remove("pop"); void el.offsetWidth; el.parentElement.classList.add("pop"); } }
-/* during a lesson the exit needs a 1-second hold, so a stray tap can't end the exercise */
-function holdBtn(fn, ms = 1000) {
-  let timer = null;
-  const ring = h("span", { class: "hold-ring", style: `--hold:${ms}ms` });
-  const btn = h("button", { class: "round", style: "position:relative", "aria-label": "Press and hold to leave" }, "🏔️", ring);
-  const stop = () => { clearTimeout(timer); ring.classList.remove("go"); };
-  btn.addEventListener("pointerdown", () => { ring.classList.add("go"); timer = setTimeout(fn, ms); });
-  ["pointerup", "pointerleave", "pointercancel"].forEach(e => btn.addEventListener(e, stop));
-  btn.addEventListener("keydown", e => { if (e.key === "Enter") fn(); });
-  return btn;
+/* during a lesson, tapping exit asks "Leave this lesson?" so a stray tap alone can't end the exercise */
+function holdBtn(fn) {
+  const ask = h("div", { class: "leave-ask", hidden: true },
+    h("span", null, "Leave this lesson?"),
+    h("button", { class: "pbtn", onclick: e => { e.stopPropagation(); hush(); fn(); } }, "Leave"),
+    h("button", { class: "pbtn", onclick: e => { e.stopPropagation(); ask.hidden = true; } }, "Stay"));
+  const btn = h("button", { class: "round", "aria-label": "Leave this lesson", onclick: () => { ask.hidden = !ask.hidden; } }, "✕");
+  return h("div", { style: "position:relative" }, btn, ask);
 }
 const homeBtn = (fn = showMap) => h("button", { class: "round", "aria-label": "Back to the map", onclick: fn }, "🏔️");
 
@@ -808,11 +811,17 @@ const ACTIVITIES = {
   /* hear a sound, tap the egg with that letter */
   sounds(area, target, lv, gen) {
     return new Promise(resolve => {
-      let first = true;
+      let first = true, misses = 0;
       const cue = () => say("q_find", 120, snd(target.p));
       const eggs = eggChoices(target, lv.n).map(s => h("button", { class: "egg pop", "aria-label": "Letter " + s.g, onclick: async e => {
         const el = e.currentTarget;
-        if (s.p !== target.p) { first = false; el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk(); await say("q_tryagain", snd(target.p)); return; }
+        if (s.p !== target.p) {
+          first = false; misses++;
+          el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk();
+          if (misses >= 2) area.querySelector(`.egg[aria-label="Letter ${target.g}"]`).classList.add("glow");
+          await say("q_tryagain", snd(target.p));
+          return;
+        }
         el.classList.add("cracked"); el.textContent = "🐤"; arpeggio();
         await say(snd(target.p), 150, praise());
         if (gen === screenGen) resolve(first);
@@ -849,6 +858,24 @@ const ACTIVITIES = {
         if (last) finish();
       }, () => { arrow.hidden = true; });
       function reset() { busy = false; slide.reset(); arrow.hidden = false; below.replaceChildren(); frog.textContent = "🐸"; }
+      // after a miss the frog hops the word itself: each sound, then the whole word
+      async function modelIt() {
+        below.replaceChildren(h("div", { class: "bubble" }, "Watch the frog, then you try."));
+        slide.reset(); frog.textContent = "🐸";
+        pads.forEach(p => p.classList.remove("lit"));
+        for (let i = 0; i < pads.length; i++) {
+          if (gen !== screenGen) return;
+          pads[i].classList.add("lit");
+          frog.classList.add("hopping");
+          const pr = pond.getBoundingClientRect(), r = pads[i].getBoundingClientRect();
+          frog.style.left = (r.left + r.width / 2 - pr.left - frog.offsetWidth / 2) + "px";
+          const t = word.t[i];
+          if (t.p) await say(snd(t.p)); else { note(7); await wait(300); }
+        }
+        await wait(250);
+        await say(wordClip(word.w));
+        await wait(400);
+      }
 
       // voice line: he says the sounds himself while sliding; the frog splashes back if his voice drops out
       (async () => {
@@ -909,6 +936,8 @@ const ACTIVITIES = {
           if (w !== word) {
             first = false; el.classList.add("shake"); bonk();
             await say("q_again");
+            if (gen !== screenGen) return;
+            await modelIt();  // model: the frog shows how, then he does it himself
             if (gen === screenGen) reset();
             return;
           }
@@ -966,7 +995,7 @@ const ACTIVITIES = {
   /* hear the word, see the picture, tap letters in order; each correct letter climbs the scale */
   spell(area, word, lv, gen) {
     return new Promise(resolve => {
-      let first = true, pos = 0;
+      let first = true, pos = 0, misses = 0;
       const slots = word.t.map(() => h("span", { class: "slot" }));
       const inWord = new Set(word.t.map(t => t.g)), inWordP = new Set(word.t.map(t => t.p).filter(Boolean));
       const extras = shuffle(soundsUpTo(lv.n).filter(s => !inWord.has(s.g) && !inWordP.has(s.p) && !s.g.includes("_"))).slice(0, Math.max(2, 6 - inWord.size));
@@ -976,10 +1005,13 @@ const ACTIVITIES = {
         const el = e.currentTarget, want = word.t[pos];
         if (!want) return;
         if (t.g !== want.g) {
-          first = false; el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk();
+          first = false; misses++;
+          el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk();
+          if (misses >= 2) flowers.find(f => f.textContent === want.g && !f.classList.contains("used"))?.classList.add("glow");
           await say(snd(t.p) || [], 200, "q_tryagain", wordClip(word.w));
           return;
         }
+        misses = 0; flowers.forEach(f => f.classList.remove("glow"));
         slots[pos].textContent = want.g; slots[pos].classList.add("pop");
         note(pos); want.p && say(snd(want.p));
         pos++;

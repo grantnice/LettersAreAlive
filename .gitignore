@@ -2,3 +2,5 @@ voice/*.onnx
 voice/*.onnx.json
 .audio-cache.json
 __pycache__/
+voice/sherpa-onnx-*
+__pycache__/

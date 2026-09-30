@@ -9,7 +9,7 @@ The curriculum lives in CURRICULUM below. Rules it follows:
   * Words are written as tiles: "sh-i-p" or "c-a:A-k-e:_" (grapheme:phonemeKey, "_" = silent).
     Words without dashes are one tile per letter.
 """
-import base64, io, json, re, wave
+import base64, io, json, os, re, wave
 from pathlib import Path
 
 import lameenc
@@ -235,7 +235,7 @@ def clips(data):
         words |= set(s[0].lower().split())
     words |= {"the", "a", "is", "i", "see"} | {w for pair in PAIRS for w in pair}
     for w in words:
-        out[f"w_{w.lower()}"] = (w, 'word')
+        out[f"w_{w.lower()}"] = (w, "single")
     for i, s in enumerate(SENTENCES):
         out[f"s_{i}"] = (s[0].capitalize() + ".", "word")
     for k, text in PROMPTS.items():
@@ -319,8 +319,95 @@ def vowel_from_word(voice, word):
     return x[start * frame: end * frame], rate
 
 
+_aligned_voice = None
+_listener = None
+CARRIERS = ["Say, {w}.", "Look, {w}.", "The word is {w}."]
+TAKES = 9
+
+
+def listener():
+    """Optional Whisper recognizer (sherpa-onnx) used to pick clear takes. Set LAA_ASR to the
+    model folder, e.g. sherpa-onnx-whisper-small.en from the sherpa-onnx GitHub releases."""
+    global _listener
+    if _listener is None:
+        d = Path(os.environ.get("LAA_ASR", ROOT / "voice" / "sherpa-onnx-whisper-small.en"))
+        _listener = False
+        if d.exists():
+            import sherpa_onnx
+            stem = d.name.replace("sherpa-onnx-whisper-", "")
+            _listener = sherpa_onnx.OfflineRecognizer.from_whisper(
+                encoder=str(d / f"{stem}-encoder.int8.onnx"), decoder=str(d / f"{stem}-decoder.int8.onnx"),
+                tokens=str(d / f"{stem}-tokens.txt"), language="en", task="transcribe", num_threads=8)
+    return _listener
+
+
+def heard_as(x, rate, context):
+    """What the recognizer hears when this clip follows `context` audio (single words are
+    hard to recognize with no context, just like for people)."""
+    rec = listener()
+    pad = np.zeros(int(rate * 0.25))
+    y = np.concatenate([pad, context, np.zeros(int(rate * 0.12)), x, pad]) / 32768
+    s = rec.create_stream()
+    s.accept_waveform(rate, y.astype(np.float32))
+    rec.decode_stream(s)
+    words = re.sub(r"[^a-z0-9 ]", " ", s.result.text.lower()).split()
+    return [w for w in words if w not in ("the", "word", "is")]
+
+
+def cut_word(carrier, word):
+    ch = list(_aligned_voice.synthesize(carrier.format(w=word), SynthesisConfig(length_scale=1.15), include_alignments=True))[-1]
+    x = ch.audio_int16_array.astype(float)
+    groups, cur, pos = [], [], 0
+    for a in ch.phoneme_alignments:
+        seg = (a.phoneme, pos, pos + int(a.num_samples))
+        pos = seg[2]
+        if a.phoneme in " ,.!?^$":
+            if cur:
+                groups.append(cur)
+            cur = []
+        else:
+            cur.append(seg)
+    if cur:
+        groups.append(cur)
+    g = groups[carrier.split().index(next(t for t in carrier.split() if "{w}" in t))]
+    rate = ch.sample_rate
+    y = x[max(0, g[0][1] - int(rate * 0.03)): min(len(x), g[-1][2] + int(rate * 0.06))]
+    ramp = min(len(y) // 8, int(rate * 0.006))
+    y[:ramp] *= np.linspace(0, 1, ramp)
+    return y, rate
+
+
+def word_from_sentence(word):
+    """This voice says lone words badly (sheep comes out as "cheap", lip as "nip"), but clearly
+    inside a sentence. So each word is spoken in a short carrier sentence ("Say, sheep.") and
+    cut out using the voice's own phoneme timings. The voice varies from take to take, so when
+    a recognizer is available several takes are made and the first one it hears correctly wins."""
+    global _aligned_voice
+    if _aligned_voice is None:
+        _aligned_voice = PiperVoice.load(str(ROOT / "voice" / "en-us-lessac-medium.onnx"), include_alignments=True)
+    if not listener():
+        return cut_word(CARRIERS[0], word)
+    context = list(_aligned_voice.synthesize("The word is", SynthesisConfig(length_scale=1.15)))[-1].audio_int16_array.astype(float)
+    ok = {word} | SOUNDS_ALIKE.get(word, set())
+    first = None
+    for i in range(TAKES):
+        y, rate = cut_word(CARRIERS[i % len(CARRIERS)], word)
+        first = first or (y, rate)
+        if ok & set(heard_as(y, rate, context)):
+            return y, rate
+    print(f"  no clear take for '{word}' after {TAKES} tries; using the first one")
+    return first
+
+
+SOUNDS_ALIKE = {"sun": {"son"}, "bee": {"be", "b"}, "see": {"sea", "c"}, "i": {"eye", "aye"}, "nine": {"9"},
+                "five": {"5"}, "six": {"6"}, "ten": {"10"}, "red": {"read"}, "ant": {"aunt"}, "a": {"uh", "ah"}}
+
+
 def synth(voice, text, kind):
     is_phoneme = kind in ("hold", "stop")
+    if kind == "single":
+        x, rate = word_from_sentence(text)
+        return encode(x, rate)
     if text.startswith("from:"):
         x, rate = vowel_from_word(voice, text[5:])
         body = steady_part(x, rate)
@@ -348,8 +435,23 @@ def synth(voice, text, kind):
     return encode(x, rate)
 
 
+TARGET_RMS = 3300      # every clip plays at about the same loudness
+PEAK_LIMIT = 27000     # headroom so MP3 encoding never clips
+
+
+def level(x):
+    """Match loudness across clips and keep peaks below full scale."""
+    loud = x[np.abs(x) > np.abs(x).max() * 0.1]
+    rms = np.sqrt((loud ** 2).mean()) if len(loud) else 1
+    gain = TARGET_RMS / max(rms, 1)
+    peak = np.abs(x).max() * gain
+    if peak > PEAK_LIMIT:
+        gain *= PEAK_LIMIT / peak
+    return x * gain
+
+
 def encode(x, rate):
-    x = x.astype(float)
+    x = level(x.astype(float))
     fade = min(330, len(x) // 4)
     x[-fade:] *= np.linspace(1, 0, fade)
     enc = lameenc.Encoder()

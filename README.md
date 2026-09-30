@@ -52,4 +52,11 @@ curl -L https://github.com/rhasspy/piper/releases/download/v0.0.2/voice-en-us-le
 python3 build.py   # writes index.html (the game) and artifact.html (for a claude.ai preview)
 ```
 
-The curriculum (levels, words, pictures, sentences, animals) lives at the top of `build.py`. The game code and art live in `game.template.html`. Letter sounds are made with the [Piper](https://github.com/rhasspy/piper) neural voice from IPA phonemes, so a sound like /b/ is a clipped /b/ and not "bee" or "buh". Continuous sounds are stretched so they can be held while blending. The Lessac voice's dataset is licensed for non-commercial use, which covers family use.
+Optional but recommended: download `sherpa-onnx-whisper-small.en` from the [sherpa-onnx releases](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) into `voice/` (or point `LAA_ASR` at it). The build then records up to 9 takes of each word and keeps the first one Whisper hears correctly.
+
+### Quality checks
+
+- `python3 tools/playtest.py` plays every step of several levels in a headless browser, answering correctly, and reports stuck activities, bad answer choices, and page errors.
+- `python3 tools/qa_audio.py` regenerates clips and checks them: Whisper transcription for words, sentences and prompts, and length, loudness and clipping checks for letter sounds.
+
+The curriculum (levels, words, pictures, sentences, animals) lives at the top of `build.py`. The game code and art live in `game.template.html`. Words are spoken inside a short sentence ("Say, sheep.") and cut out using the voice's phoneme timings, because this voice says lone words poorly. Letter sounds are made with the [Piper](https://github.com/rhasspy/piper) neural voice from IPA phonemes, so a sound like /b/ is a clipped /b/ and not "bee" or "buh". Continuous sounds are stretched so they can be held while blending. The Lessac voice's dataset is licensed for non-commercial use, which covers family use.
