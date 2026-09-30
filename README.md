@@ -49,7 +49,7 @@ Grown-ups corner → 🎙️ Record my letter sounds walks through every letter 
 
 ## Grown-ups corner
 
-Press and hold ⚙️ on the map for 1.5 seconds. It shows accuracy for each sound, the words to watch, recent sessions, level placement, and a reset.
+Tap ⚙️ on the map and answer a quick addition question (a grown-ups check). It shows accuracy for each sound, the words to watch, recent sessions, level placement, and a reset.
 
 ## Building
 

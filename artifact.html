@@ -231,6 +231,9 @@ select.pbtn { font-size: 16px; }
 .video-frame { width: min(960px, 100%); aspect-ratio: 16 / 9; max-width: 100%; border: 6px solid var(--paper); border-radius: 20px; background: #000; }
 .leave-ask { position: absolute; top: 64px; left: 0; z-index: 20; display: flex; align-items: center; gap: 8px; white-space: nowrap;
   background: var(--paper); border: 3px solid var(--paper-edge); border-radius: 16px; padding: 8px 10px; font-size: 18px; box-shadow: 0 6px 0 rgba(0,0,0,.1); }
+.gate-answer { font-size: 44px; font-weight: 800; min-width: 90px; padding: 4px 16px; border-bottom: 5px solid var(--ink); }
+.gate-keys { display: grid; grid-template-columns: repeat(5, 64px); gap: 10px; justify-content: center; }
+.gate-key { font-size: 28px; height: 64px; }
 .hold-ring { position: absolute; inset: -4px; border-radius: 50%; border: 4px solid var(--falu); clip-path: inset(0 100% 0 0); }
 .hold-ring.go { transition: clip-path var(--hold, 1.5s) linear; clip-path: inset(0 0 0 0); }
 
@@ -651,16 +654,28 @@ function showMap() {
   });
 }
 
-/* hold the gear for 1.5 s so little hands don't wander into settings */
+/* grown-ups gate: tapping ⚙️ asks a quick addition question a 4-year-old can't answer yet */
 function parentGear() {
-  let timer = null;
-  const ring = h("span", { class: "hold-ring" });
-  const btn = h("button", { class: "round", style: "position:relative", "aria-label": "Grown-ups: press and hold" }, "⚙️", ring);
-  const stop = () => { clearTimeout(timer); ring.classList.remove("go"); };
-  btn.addEventListener("pointerdown", () => { ring.classList.add("go"); timer = setTimeout(showParent, 1500); });
-  ["pointerup", "pointerleave", "pointercancel"].forEach(e => btn.addEventListener(e, stop));
-  btn.addEventListener("keydown", e => { if (e.key === "Enter") showParent(); });
-  return btn;
+  return h("button", { class: "round", "aria-label": "Grown-ups corner", onclick: parentGate }, "⚙️");
+}
+function parentGate() {
+  const a = 6 + rand(7), b = 5 + rand(8), answer = a + b;
+  let typed = "";
+  const shown = h("div", { class: "gate-answer" }, "?");
+  const msg = h("div", { class: "sub", style: "min-height:1.4em" }, "");
+  const press = d => {
+    typed = (typed + d).slice(0, 2);
+    shown.textContent = typed;
+    if (typed.length === String(answer).length) {
+      if (+typed === answer) return showParent();
+      msg.textContent = "Not quite. Try again."; typed = ""; setTimeout(() => { shown.textContent = "?"; }, 400);
+    }
+  };
+  const keys = h("div", { class: "gate-keys" }, [1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(d => h("button", { class: "pbtn gate-key", onclick: () => press(String(d)) }, d)));
+  screen("meadow", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:26px" }, "For grown-ups"), null),
+    h("div", { class: "stage" }, h("div", { class: "card", style: "align-items:center;text-align:center" },
+      h("div", { class: "sub" }, "Grown-ups: answer to open settings"),
+      h("div", { style: "font-size:48px;font-weight:800" }, `${a} + ${b} =`), shown, keys, msg)));
 }
 
 /* ---------------- level screen ---------------- */
@@ -1520,7 +1535,7 @@ function showVideoPicker(r) {
   const list = videoList();
   const body = list.length
     ? h("div", { class: "song-list" }, list.map(v => h("button", { class: "step", onclick: () => playVideo(v, r) }, h("span", { class: "ic" }, "🎬"), h("span", null, v.name))))
-    : h("div", { class: "bubble" }, "Ask a grown-up to add videos in the grown-ups corner (hold ⚙️).");
+    : h("div", { class: "bubble" }, "Ask a grown-up to add videos in the grown-ups corner (⚙️).");
   screen("meadow", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu)" }, "Video time!"), starChip()),
     h("div", { class: "stage" }, h("div", { class: "sub" }, `You earned ${S.video.seconds} seconds of video. Pick one!`), body));
 }
