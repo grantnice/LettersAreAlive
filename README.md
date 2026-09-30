@@ -39,6 +39,14 @@ Turn it on in the grown-ups corner. It needs the game opened from an https addre
 - **Voice line:** in Lily Pad Hop the pads stay quiet and he says the sounds himself while sliding the frog. A live voice line shows his voice. If it drops out between sounds for too long, the frog splashes back and he tries again ("keep your voice on": *mmmaaat*, not *m… a… t*). The game gets a little more patient after each splash, and a splash never counts as a miss.
 - **Word check:** after the slide he taps 🎤 and says the word fast. The browser's speech recognizer shows what it heard. It is encouragement only and never marks him wrong.
 
+## Rewards
+
+Every star he earns also goes into a savings jar. He picks what he's saving for on the map (🎬 video time, 🍪 a cookie from the cookie store, 🤸 the trampoline park, or anything you add). Video rewards play right away: 60 seconds of a SpaceX or Blippi video (or your own links), continuing where the last turn stopped. Real-world rewards show a "Show a grown-up!" screen and wait in the grown-ups corner until you mark them given. Names, emoji and star costs are all editable.
+
+## Your own voice for the letter sounds
+
+Grown-ups corner → 🎙️ Record my letter sounds walks through every letter sound. Recordings are trimmed and leveled automatically and replace the computer voice everywhere. They're kept in the browser; **Save recordings file** exports them. Put that file at `voice/recordings.json` and run `python3 build.py` to build them into the game for every device.
+
 ## Grown-ups corner
 
 Press and hold ⚙️ on the map for 1.5 seconds. It shows accuracy for each sound, the words to watch, recent sessions, level placement, and a reset.

@@ -201,6 +201,16 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .parent h2 { font-family: var(--font-display); font-size: 30px; }
 .parent h3 { font-family: var(--font-display); font-size: 21px; }
 .parent p { margin: 0; line-height: 1.5; max-width: 65ch; color: var(--ink-soft); }
+.tenets { display: block; line-height: 1.55; font-size: 16px; }
+.tenets h1 { font-family: var(--font-display); font-size: 30px; margin-bottom: 12px; }
+.tenets h2 { font-size: 24px; margin: 26px 0 8px; }
+.tenets h3 { margin: 18px 0 6px; }
+.tenets p, .tenets li { max-width: 72ch; color: var(--ink); }
+.tenets li { margin-block: 8px; }
+.tenets a { color: var(--sv-blue); overflow-wrap: anywhere; }
+.tenets code { font-size: .9em; background: var(--snow); padding: 0 4px; border-radius: 4px; }
+.tenets hr { border: 0; border-top: 2px solid var(--paper-edge); margin: 24px 0; }
+.tenets { -webkit-user-select: text; user-select: text; }
 .grid-sounds { display: flex; flex-wrap: wrap; gap: 6px; }
 .gs { font-family: var(--font-read); font-weight: 700; font-size: 20px; min-width: 52px; padding: 4px 6px; border-radius: 10px; text-align: center; border: 2px solid var(--paper-edge); background: var(--snow); }
 .gs small { display: block; font-family: system-ui; font-weight: 600; font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
@@ -209,6 +219,16 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .pbtn { padding: 10px 16px; border-radius: 12px; background: var(--snow); border: 2px solid var(--paper-edge); font-weight: 700; font-family: system-ui; }
 .pbtn.danger { border-color: var(--miss); color: var(--miss); }
 select.pbtn { font-size: 16px; }
+.vmeter { display: inline-block; width: 70px; height: 12px; border-radius: 6px; background: var(--paper-edge); overflow: hidden; vertical-align: middle; margin-right: 6px; }
+.vmeter i { display: block; height: 100%; background: var(--falu); }
+.video-ready { background: var(--sv-yellow); border-color: #c99d00; animation: bob 1.4s ease-in-out infinite; }
+.reward-card { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 20px; background: var(--paper); border: 4px solid var(--paper-edge); flex-wrap: wrap; }
+.reward-card.goal { border-color: var(--falu); }
+.reward-emoji { font-size: 56px; line-height: 1; }
+.reward-name { font-size: 24px; font-weight: 800; }
+.reward-bar { height: 14px; border-radius: 7px; background: var(--paper-edge); overflow: hidden; margin-block: 6px; }
+.reward-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--sv-yellow), #f0a500); }
+.video-frame { width: min(960px, 100%); aspect-ratio: 16 / 9; max-width: 100%; border: 6px solid var(--paper); border-radius: 20px; background: #000; }
 .leave-ask { position: absolute; top: 64px; left: 0; z-index: 20; display: flex; align-items: center; gap: 8px; white-space: nowrap;
   background: var(--paper); border: 3px solid var(--paper-edge); border-radius: 16px; padding: 8px 10px; font-size: 18px; box-shadow: 0 6px 0 rgba(0,0,0,.1); }
 .hold-ring { position: absolute; inset: -4px; border-radius: 50%; border: 4px solid var(--falu); clip-path: inset(0 100% 0 0); }
@@ -253,9 +273,19 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 /* ---------------- saved progress ---------------- */
 const KEY = "lettersarealive.v1";
-const fresh = () => ({ dev: true, unlocked: 1, passed: {}, stars: 0, animals: [], items: [], stats: {}, days: [], history: [] });
+const DEFAULT_REWARDS = [
+  { id: "video", e: "🎬", name: "Video time", cost: 60, kind: "video" },
+  { id: "cookie", e: "🍪", name: "Cookie from the cookie store", cost: 400, kind: "treat" },
+  { id: "trampoline", e: "🤸", name: "Trampoline park", cost: 1500, kind: "treat" },
+];
+const DEFAULT_VIDEOS = "SpaceX | https://www.youtube.com/channel/UCtI0Hodo5o5dUb67FeUjDeA\nBlippi | https://www.youtube.com/channel/UC5PYHgAzJ1wLEidB58SK6Xw";
+const fresh = () => ({ rewards: { saved: 0, goal: "video", list: DEFAULT_REWARDS.map(r => ({ ...r })), owed: [] },
+  video: { seconds: 60, links: DEFAULT_VIDEOS, at: {} }, dev: true, unlocked: 1, passed: {}, stars: 0, animals: [], items: [], stats: {}, days: [], history: [] });
 let S;
 try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { S = fresh(); }
+// saves from before the rewards system: carry over the video meter
+if (S.video && S.video.earned) { S.rewards.saved += S.video.earned; delete S.video.earned; }
+if (S.video && S.video.links === "") S.video.links = DEFAULT_VIDEOS;
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
 
 /* ---------------- sound ---------------- */
@@ -303,8 +333,43 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { keepAlive && keepAlive.pause(); }
   else if (AC) { AC.resume(); keepAlive && keepAlive.play().catch(() => {}); }
 });
+/* a grown-up's own recordings (made in the grown-ups corner) replace the built-in clips */
+let MINE = {};
+const RecDB = {
+  db: null,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((res, rej) => {
+      let r;
+      try { r = indexedDB.open("lettersarealive", 1); } catch (e) { return rej(e); }
+      r.onupgradeneeded = () => r.result.createObjectStore("rec");
+      r.onsuccess = () => res(this.db = r.result);
+      r.onerror = () => rej(r.error);
+    });
+  },
+  async tx(mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => { const t = db.transaction("rec", mode), st = t.objectStore("rec"), r = fn(st); t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error); });
+  },
+  set(k, v) { return this.tx("readwrite", st => st.put(v, k)); },
+  del(k) { return this.tx("readwrite", st => st.delete(k)); },
+  async all() {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const out = {}, t = db.transaction("rec", "readonly"), c = t.objectStore("rec").openCursor();
+      c.onsuccess = () => { const cur = c.result; if (cur) { out[cur.key] = cur.value; cur.continue(); } };
+      t.oncomplete = () => res(out); t.onerror = () => rej(t.error);
+    });
+  },
+};
+RecDB.all().then(m => { MINE = m; }).catch(() => {});
+
 async function getBuf(name) {
   if (BUF[name]) return BUF[name];
+  if (MINE[name] && AC) {
+    BUF[name] = await new Promise((res, rej) => AC.decodeAudioData(MINE[name].slice(0), res, rej));
+    return BUF[name];
+  }
   const b64 = AUDIO[name];
   if (!b64 || !AC) return null;
   const bin = atob(b64), arr = new Uint8Array(bin.length);
@@ -525,7 +590,7 @@ function bar(left, center, right) {
   return h("div", { class: "bar" }, left, h("div", { class: "grow" }, center), right);
 }
 const starChip = () => h("span", { class: "chip", id: "stars" }, "⭐ ", h("span", null, S.stars));
-function addStars(n) { S.stars += n; save(); const el = $("#stars span"); if (el) { el.textContent = S.stars; el.parentElement.classList.remove("pop"); void el.offsetWidth; el.parentElement.classList.add("pop"); } }
+function addStars(n) { S.stars += n; if (n > 0) S.rewards.saved += n; save(); const el = $("#stars span"); if (el) { el.textContent = S.stars; el.parentElement.classList.remove("pop"); void el.offsetWidth; el.parentElement.classList.add("pop"); } }
 /* during a lesson, tapping exit asks "Leave this lesson?" so a stray tap alone can't end the exercise */
 function holdBtn(fn) {
   const ask = h("div", { class: "leave-ask", hidden: true },
@@ -570,6 +635,7 @@ function showMap() {
     bar(h("button", { class: "round", "aria-label": "My farm", onclick: showFarm }, "🛖"),
       h("div", { style: "display:flex;gap:10px;justify-content:center;flex-wrap:wrap" },
         h("button", { class: "chip", onclick: showSongs }, "🎵 Songs"),
+        rewardChip(),
         streak ? h("span", { class: "chip" }, "☀️ " + streak + (streak === 1 ? " day" : " days")) : null, devTag),
       h("div", { style: "display:flex;gap:10px;align-items:center" }, starChip(), parentGear())),
     h("div", { class: "stage scroll", id: "mapscroll" },
@@ -1222,7 +1288,298 @@ async function wordLadder() {
   }
 }
 
+/* ---------------- teaching principles (docs/TENETS.md, converted at build time) ---------------- */
+function showTenets() {
+  const doc = h("article", { class: "parent tenets", html: DATA.tenetsHtml });
+  screen("meadow", bar(h("button", { class: "round", "aria-label": "Back to grown-ups corner", onclick: showParent }, "⚙️"),
+    h("h2", { style: "text-align:center;font-size:26px" }, "Teaching principles"), null), h("div", { class: "stage scroll" }, doc));
+}
+
+/* ---------------- recording studio: a grown-up records the letter sounds ---------------- */
+function wavBytes(samples, rate) {
+  const n = samples.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 32767, true);
+  return buf;
+}
+/* cut the silence around a recording, even out the volume, soften the edges */
+function tidy(buffer) {
+  const x = buffer.getChannelData(0), rate = buffer.sampleRate, win = Math.round(rate * .01);
+  const rms = [];
+  for (let i = 0; i + win <= x.length; i += win) { let s = 0; for (let j = i; j < i + win; j++) s += x[j] * x[j]; rms.push(Math.sqrt(s / win)); }
+  const peak = Math.max(...rms, 1e-6), thr = Math.max(.01, peak * .12);
+  let a = rms.findIndex(r => r > thr), b = rms.length - 1 - [...rms].reverse().findIndex(r => r > thr);
+  if (a < 0) return null;
+  const start = Math.max(0, (a - 4) * win), end = Math.min(x.length, (b + 6) * win);
+  const y = x.slice(start, end);
+  let top = 0; for (const v of y) top = Math.max(top, Math.abs(v));
+  const gain = .9 / Math.max(top, 1e-4), fin = Math.round(rate * .005), fout = Math.round(rate * .025);
+  for (let i = 0; i < y.length; i++) {
+    let g = gain;
+    if (i < fin) g *= i / fin;
+    if (i > y.length - fout) g *= (y.length - i) / fout;
+    y[i] *= g;
+  }
+  return { samples: y, rate };
+}
+async function startRecording() {
+  unlock(); setSession("play-and-record");
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  const rec = new MediaRecorder(stream), chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const done = new Promise(res => rec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop()); setSession("playback");
+    try {
+      const raw = await new Blob(chunks, { type: rec.mimeType }).arrayBuffer();
+      const buf = await new Promise((ok, bad) => AC.decodeAudioData(raw, ok, bad));
+      res(tidy(buf));
+    } catch { res(null); }
+  });
+  rec.start();
+  const cap = setTimeout(() => rec.state === "recording" && rec.stop(), 3000);
+  return { stop() { clearTimeout(cap); if (rec.state === "recording") rec.stop(); }, done };
+}
+function letterSoundList() {
+  const seen = new Set(), out = [];
+  for (const lv of LEVELS) for (const x of lv.sounds) if (!seen.has(x.p)) { seen.add(x.p); out.push({ ...x, n: lv.n }); }
+  return out;
+}
+function showRecorder(i = 0) {
+  const list = letterSoundList(), x = list[i], key = snd(x.p);
+  const ex = (wordsUpTo(LEVELS.length).find(w => w.t.some(t => t.p === x.p)) || {}).w;
+  const status = h("p", { style: "min-height:1.5em;font-weight:700" }, MINE[key] ? "✓ Your recording is in use." : "Using the computer voice.");
+  const dots = h("div", { style: "display:flex;flex-wrap:wrap;gap:4px" }, list.map((y, j) =>
+    h("button", { class: "gs" + (MINE[snd(y.p)] ? " g" : ""), style: j === i ? "outline:3px solid var(--sv-blue)" : "", onclick: () => showRecorder(j) }, y.g)));
+  let ctl = null;
+  const recBtn = h("button", { class: "big-btn", onclick: async () => {
+    if (ctl) { ctl.stop(); return; }
+    if (!(navigator.mediaDevices && window.MediaRecorder)) { status.textContent = "Recording needs the game opened from its web address (https) in Safari or Chrome."; return; }
+    try { ctl = await startRecording(); } catch { status.textContent = "The microphone was blocked. Allow it for this site and try again."; return; }
+    recBtn.textContent = "■ Stop"; status.textContent = "Recording… say the sound, then tap Stop.";
+    const got = await ctl.done; ctl = null; recBtn.textContent = "● Record";
+    if (!got) { status.textContent = "I didn't hear anything. Try again a little closer."; return; }
+    const wav = wavBytes(got.samples, got.rate);
+    MINE[key] = wav; delete BUF[key];
+    try { await RecDB.set(key, wav); } catch {}
+    status.textContent = `✓ Saved (${(got.samples.length / got.rate).toFixed(2)} s). Tap ▶ to check it.`;
+    dots.children[i].classList.add("g");
+    say(key);
+  } }, "● Record");
+  screen("meadow", bar(h("button", { class: "round", "aria-label": "Back to grown-ups corner", onclick: showParent }, "⚙️"),
+    h("h2", { style: "text-align:center;font-size:26px" }, "Record letter sounds"), null),
+    h("div", { class: "stage scroll" }, h("div", { class: "parent" },
+      h("p", null, "Say just the sound, not the letter's name. Hold continuous sounds for about a second (mmm, sss, aaa, fff). Keep stop sounds short and crisp: b, not buh. Your recordings replace the computer voice everywhere in the game."),
+      dots,
+      h("div", { style: "display:flex;align-items:center;gap:20px;flex-wrap:wrap" },
+        h("div", { class: "tile", style: "font-size:84px;min-width:130px;height:130px" }, x.g),
+        h("div", null, h("div", { style: "font-size:22px;font-weight:800" }, `Sound ${i + 1} of ${list.length}`),
+          h("div", { class: "sub" }, (ex ? `as in "${ex}" · ` : "") + `Level ${x.n}`))),
+      h("div", { class: "prow" }, recBtn,
+        h("button", { class: "pbtn", onclick: () => say(key) }, "▶ Play"),
+        MINE[key] ? h("button", { class: "pbtn", onclick: async () => { delete MINE[key]; delete BUF[key]; try { await RecDB.del(key); } catch {} showRecorder(i); } }, "Use computer voice") : null),
+      status,
+      h("div", { class: "prow" },
+        h("button", { class: "pbtn", disabled: i === 0, onclick: () => showRecorder(i - 1) }, "← Back"),
+        h("button", { class: "pbtn", disabled: i === list.length - 1, onclick: () => showRecorder(i + 1) }, "Next →")),
+      h("h3", null, "Keep your recordings safe"),
+      h("p", null, "They're saved in this browser. Save a file to back them up or move them to another device, or send it to Claude to build your voice into the game for good."),
+      h("div", { class: "prow" },
+        h("button", { class: "pbtn", onclick: exportRecordings }, "Save recordings file"),
+        h("label", { class: "pbtn", for: "rec-import", style: "cursor:pointer" }, "Load recordings file"),
+        h("input", { id: "rec-import", type: "file", accept: ".json,application/json", hidden: true, onchange: importRecordings })),
+      h("p", { id: "rec-io" }, ""))));
+}
+function toB64(buf) { let s = ""; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); }
+function exportRecordings() {
+  const sounds = {};
+  for (const [k, v] of Object.entries(MINE)) sounds[k] = toB64(v);
+  if (!Object.keys(sounds).length) { $("#rec-io").textContent = "Record something first."; return; }
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ app: "letters-are-alive", version: 1, sounds })], { type: "application/json" }));
+  const a = h("a", { href: url, download: "letters-are-alive-recordings.json" });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  $("#rec-io").textContent = `Saved ${Object.keys(sounds).length} recordings.`;
+}
+async function importRecordings(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    let n = 0;
+    for (const [k, b64] of Object.entries(data.sounds || {})) {
+      const bin = atob(b64), arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      MINE[k] = arr.buffer; delete BUF[k];
+      try { await RecDB.set(k, arr.buffer); } catch {}
+      n++;
+    }
+    $("#rec-io").textContent = `Loaded ${n} recordings.`;
+  } catch { $("#rec-io").textContent = "That file couldn't be read."; }
+}
+
+/* ---------------- sound check: a grown-up listens to every letter sound ---------------- */
+function showSoundCheck() {
+  const marks = S.soundMarks || (S.soundMarks = {});
+  const out = h("textarea", { class: "pbtn", id: "sc-out", rows: "3", readonly: true, style: "width:100%;font-family:ui-monospace,monospace" });
+  const refresh = () => {
+    const bad = Object.entries(marks).filter(([, v]) => v === "bad").map(([k]) => k);
+    out.value = bad.length ? "These sound wrong: " + bad.join(", ") : "Nothing marked wrong yet.";
+  };
+  const row = (key, label, clip, hint) => {
+    const up = h("button", { class: "pbtn", "aria-label": label + " sounds right" }, "👍"), down = h("button", { class: "pbtn", "aria-label": label + " sounds wrong" }, "👎");
+    const paint = () => { up.style.background = marks[key] === "ok" ? "#e5f7df" : ""; down.style.background = marks[key] === "bad" ? "#fde3d4" : ""; };
+    up.onclick = () => { marks[key] = "ok"; save(); paint(); refresh(); };
+    down.onclick = () => { marks[key] = "bad"; save(); paint(); refresh(); };
+    paint();
+    return h("div", { class: "prow sc-row" }, h("button", { class: "tile small", style: "min-width:84px", onclick: () => say(clip) }, label),
+      h("span", { style: "flex:1;min-width:120px;color:var(--ink-soft)" }, hint), up, down);
+  };
+  const seen = new Set(), sounds = [];
+  for (const lv of LEVELS) for (const snd0 of lv.sounds) if (!seen.has(snd0.p)) { seen.add(snd0.p); sounds.push({ ...snd0, n: lv.n }); }
+  const example = p => (wordsUpTo(LEVELS.length).find(w => w.t.some(t => t.p === p)) || {}).w;
+  refresh();
+  screen("meadow", bar(h("button", { class: "round", "aria-label": "Back to grown-ups corner", onclick: showParent }, "⚙️"),
+    h("h2", { style: "text-align:center;font-size:26px" }, "Sound check"), null),
+    h("div", { class: "stage scroll" }, h("div", { class: "parent" },
+      h("p", null, "Tap each tile to hear it. Mark 👎 anything that sounds wrong: the wrong sound, a buzz or stutter, cut off, or too quiet. Then tap Copy list and paste it to Claude."),
+      h("h3", null, "Letter sounds"),
+      h("div", { style: "display:grid;gap:6px" }, sounds.map(x => row("snd:" + x.p, x.g, snd(x.p), `Level ${x.n}${example(x.p) ? ` · as in "${example(x.p)}"` : ""}`))),
+      DATA.unconfirmed.length ? h("h3", null, "Words the automatic check wasn't sure about") : null,
+      h("div", { style: "display:grid;gap:6px" }, DATA.unconfirmed.map(w => row("word:" + w, w, wordClip(w), "Should say: " + w))),
+      h("h3", null, "Send to Claude"), out,
+      h("div", { class: "prow" }, h("button", { class: "pbtn", onclick: async () => {
+        try { await navigator.clipboard.writeText(out.value); $("#sc-copied").textContent = "Copied."; }
+        catch { out.select(); $("#sc-copied").textContent = "Select the text above and copy it."; }
+      } }, "Copy list"), h("span", { id: "sc-copied" }, "")))));
+}
+
+/* ---------------- video time ---------------- */
+/* Video rewards: each turn plays S.video.seconds of a video a grown-up chose, picking up where the last turn stopped. */
+function videoList() {
+  return S.video.links.split("\n").map(l => l.trim()).filter(Boolean).map(line => {
+    const [name, url] = line.includes("|") ? line.split("|").map(x => x.trim()) : ["Video", line];
+    return { name, url, embed: embedFor(url) };
+  }).filter(v => v.embed);
+}
+function embedFor(url) {
+  let m;
+  const base = "https://www.youtube-nocookie.com/embed/";
+  if ((m = url.match(/[?&]list=([A-Za-z0-9_-]+)/))) return { src: base + "videoseries?list=" + m[1], key: m[1], list: true };
+  if ((m = url.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([A-Za-z0-9_-]{11})/))) return { src: base + m[1], key: m[1] };
+  if ((m = url.match(/\/channel\/UC([A-Za-z0-9_-]{22})/))) return { src: base + "videoseries?list=UU" + m[1], key: "UU" + m[1], list: true };
+  return null;
+}
+/* ---------------- rewards ---------------- */
+/* Stars he earns also go into a savings jar. He picks a reward to save for; short ones (video
+   time) come around often, big real-world ones (cookie, trampoline park) take days or weeks.
+   A grown-up sets the rewards and costs in the grown-ups corner. */
+const rewardById = id => S.rewards.list.find(r => r.id === id) || S.rewards.list[0];
+const canAfford = r => r && S.rewards.saved >= r.cost;
+function rewardChip() {
+  const goal = rewardById(S.rewards.goal);
+  if (!goal) return null;
+  const ready = S.rewards.list.some(canAfford);
+  if (ready) return h("button", { class: "chip video-ready", onclick: showRewards }, `${canAfford(goal) ? goal.e : "🎁"} Reward ready!`);
+  const pct = Math.min(100, Math.round(S.rewards.saved / goal.cost * 100));
+  return h("button", { class: "chip", onclick: showRewards, "aria-label": "Rewards" }, goal.e + " ",
+    h("span", { class: "vmeter" }, h("i", { style: `width:${pct}%` })), `${S.rewards.saved}/${goal.cost}`);
+}
+function showRewards() {
+  const cards = S.rewards.list.map(r => {
+    const pct = Math.min(100, Math.round(S.rewards.saved / r.cost * 100)), isGoal = r.id === S.rewards.goal;
+    return h("div", { class: "reward-card" + (isGoal ? " goal" : "") },
+      h("div", { class: "reward-emoji" }, r.e),
+      h("div", { style: "min-width:0;flex:1" }, h("div", { class: "reward-name" }, r.name),
+        h("div", { class: "reward-bar" }, h("i", { style: `width:${pct}%` })),
+        h("div", { class: "sub", style: "font-size:16px" }, canAfford(r) ? "You have enough stars!" : `⭐ ${S.rewards.saved} of ${r.cost}`)),
+      canAfford(r) ? h("button", { class: "big-btn", style: "font-size:22px;padding:8px 18px", onclick: () => claim(r) }, "Get it!")
+        : isGoal ? h("span", { class: "chip", style: "font-size:16px" }, "Saving for this")
+        : h("button", { class: "pbtn", onclick: () => { S.rewards.goal = r.id; save(); showRewards(); } }, "Save for this"));
+  });
+  screen("meadow", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu)" }, "My rewards"), starChip()),
+    h("div", { class: "stage scroll" }, h("div", { class: "sub" }, "Earn stars by reading. Pick what you're saving for!"), h("div", { class: "song-list", style: "width:min(680px,100%)" }, cards)));
+}
+function claim(r) {
+  if (!canAfford(r)) return;
+  if (r.kind === "video") return showVideoPicker(r);
+  S.rewards.saved -= r.cost;
+  S.rewards.owed.push({ id: r.id, e: r.e, name: r.name, d: today() });
+  save();
+  confetti(40, [r.e, "⭐", "🎉"]); arpeggio(); yodel();
+  screen("meadow", bar(homeBtn(), null, starChip()), h("div", { class: "stage" },
+    h("div", { class: "arrive", style: "animation:pop .6s" }, r.e),
+    h("h2", { style: "font-size:44px;text-align:center" }, "You earned it!"),
+    h("div", { class: "bubble", style: "font-size:30px" }, r.name),
+    h("div", { class: "sub" }, "Show a grown-up! They'll make it happen."),
+    h("button", { class: "big-btn", onclick: showMap }, "Keep climbing")));
+}
+function showVideoPicker(r) {
+  const list = videoList();
+  const body = list.length
+    ? h("div", { class: "song-list" }, list.map(v => h("button", { class: "step", onclick: () => playVideo(v, r) }, h("span", { class: "ic" }, "🎬"), h("span", null, v.name))))
+    : h("div", { class: "bubble" }, "Ask a grown-up to add videos in the grown-ups corner (hold ⚙️).");
+  screen("meadow", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu)" }, "Video time!"), starChip()),
+    h("div", { class: "stage" }, h("div", { class: "sub" }, `You earned ${S.video.seconds} seconds of video. Pick one!`), body));
+}
+function playVideo(v, r) {
+  const start = S.video.at[v.embed.key] || 0;
+  const src = `${v.embed.src}${v.embed.src.includes("?") ? "&" : "?"}autoplay=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&fs=0&disablekb=1&start=${start}`;
+  const frame = h("iframe", { class: "video-frame", src, title: v.name, allow: "autoplay; encrypted-media; picture-in-picture", referrerpolicy: "strict-origin-when-cross-origin" });
+  const clock = h("div", { class: "chip", style: "font-size:26px" }, "");
+  let left = S.video.seconds;
+  // spend the stars as soon as the video starts, so leaving early can't replay it
+  S.rewards.saved = Math.max(0, S.rewards.saved - r.cost);
+  S.video.at[v.embed.key] = start + S.video.seconds;
+  save();
+  const gen = screen("meadow", bar(homeBtn(), h("div", { style: "text-align:center" }, clock), null),
+    h("div", { class: "stage" }, frame, h("div", { class: "sub" }, window.location.hostname.endsWith("claude.ai") || window.location.protocol === "file:" ? "Videos play when the game is opened from its web address." : "")));
+  const tick = () => {
+    if (gen !== screenGen) return;
+    clock.textContent = `🎬 ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    if (left-- <= 0) return videoDone();
+    setTimeout(tick, 1000);
+  };
+  tick();
+  function videoDone() {
+    frame.remove();
+    screen("meadow", bar(homeBtn(), null, starChip()), h("div", { class: "stage" },
+      h("div", { class: "show pop" }, "🎬"), h("h2", { style: "font-size:40px" }, "Video time is over!"),
+      h("div", { class: "sub" }, "Let's read some more and earn the next one."),
+      h("button", { class: "big-btn", onclick: showMap }, "Keep climbing")));
+    arpeggio();
+  }
+}
+
 /* ---------------- grown-ups ---------------- */
+function rewardEditor() {
+  const rows = h("div", { style: "display:grid;gap:8px" });
+  const addRow = r => rows.append(h("div", { class: "prow reward-row" },
+    h("input", { class: "pbtn", "aria-label": "Emoji", value: r.e, style: "width:64px;text-align:center;font-size:22px" }),
+    h("input", { class: "pbtn", "aria-label": "Reward name", value: r.name, style: "flex:1;min-width:160px" }),
+    h("input", { class: "pbtn", "aria-label": "Stars needed", type: "number", min: "5", step: "5", value: r.cost, style: "width:100px" }),
+    h("select", { class: "pbtn", "aria-label": "Kind" }, h("option", { value: "treat", selected: r.kind !== "video" || null }, "Real-world treat"), h("option", { value: "video", selected: r.kind === "video" || null }, "Video time")),
+    h("button", { class: "pbtn", "aria-label": "Remove", onclick: e => e.currentTarget.parentElement.remove() }, "✕")));
+  S.rewards.list.forEach(addRow);
+  const msg = h("span", null, "");
+  return h("div", { style: "display:grid;gap:8px" }, rows, h("div", { class: "prow" },
+    h("button", { class: "pbtn", onclick: () => addRow({ e: "🎁", name: "", cost: 200, kind: "treat" }) }, "+ Add a reward"),
+    h("button", { class: "pbtn", onclick: () => {
+      const list = [...rows.children].map((row, i) => {
+        const [e, name, cost, kind] = row.querySelectorAll("input, select");
+        return { id: (name.value.trim() || "reward").toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + i, e: e.value.trim() || "🎁", name: name.value.trim(), cost: Math.max(5, +cost.value || 100), kind: kind.value };
+      }).filter(r => r.name);
+      if (!list.length) { msg.textContent = "Add at least one reward."; return; }
+      const goalName = rewardById(S.rewards.goal)?.name;
+      S.rewards.list = list;
+      S.rewards.goal = (list.find(r => r.name === goalName) || list[0]).id;
+      save(); msg.textContent = "Saved.";
+    } }, "Save rewards"),
+    h("button", { class: "pbtn", onclick: () => { S.rewards.saved += 100; save(); showParent(); } }, "Add 100 stars to the jar (testing)"),
+    msg));
+}
 function micTester() {
   const status = h("p", null, !Mic.supported() ? "This page can't use the microphone. Open the game from its own https address." :
     `Microphone: available. Speech checking: ${Mic.recognizer() ? "available" : "not available in this browser"}.`);
@@ -1272,12 +1629,33 @@ function showParent() {
       h("h2", null, "How Letters Are Alive teaches"),
       h("p", null, "Every level adds a few sounds and only uses words he can decode with sounds already taught. Letters make only their most common sound until Level 14 (Magic E). Each level has steps that must be mastered in order: hear-and-find the new sounds, blend words on the lily pads, spell words, then a mixed mastery check that also pulls review from earlier levels. Each step needs about 90% right on the first try. Missed sounds and words come back more often until they stick."),
       h("p", null, "Never tell him the word before he chooses. Let him slide the frog and say each sound, then say it fast. If he's stuck, have him slide again more slowly and stretch the sounds. Ten to fifteen minutes a day beats a long session."),
+      h("div", { class: "prow" }, h("button", { class: "pbtn", onclick: showTenets }, "📖 Read the teaching principles (research notes)"),
+        h("button", { class: "pbtn", onclick: showSoundCheck }, "🔊 Sound check"),
+        h("button", { class: "pbtn", onclick: () => showRecorder(0) }, "🎙️ Record my letter sounds")),
       h("h3", null, "Sound accuracy"), h("p", null, "Includes words that use each sound. Green is 90% or better, yellow 70–89%, orange below 70%."), soundGrid,
       h("h3", null, "Words to watch"), h("p", null, tough.length ? tough.join(", ") : "None yet."),
       h("h3", null, "Recent practice"), h("div", { style: "display:grid;gap:4px;font-variant-numeric:tabular-nums" }, recent.length ? recent : "No sessions yet."),
       h("h3", null, "Placement"),
       h("p", null, "If he already knows early sounds, open a later level. Earlier levels stay available for review."),
       h("div", { class: "prow" }, sel, h("button", { class: "pbtn", onclick: () => { S.unlocked = Math.max(S.unlocked, +sel.value); save(); showLevel(+sel.value); } }, "Open this level")),
+      h("h3", null, "Rewards"),
+      h("p", null, "Every star he earns also goes into a savings jar (spending stars in the farm shop doesn't take from it). He picks a reward to save for. Video rewards play right away; anything else shows a \"Show a grown-up!\" screen and waits in the list below until you mark it given. As a guide, one mastered step earns about 25 stars and a whole level about 150."),
+      h("p", null, `In the jar: ⭐ ${S.rewards.saved}`),
+      rewardEditor(),
+      S.rewards.owed.length ? h("div", { style: "display:grid;gap:6px" }, h("h3", null, "Rewards to give"), S.rewards.owed.map((o, i) =>
+        h("div", { class: "prow" }, `${o.e} ${o.name} (earned ${o.d})`, h("button", { class: "pbtn", onclick: () => { S.rewards.owed.splice(i, 1); save(); showParent(); } }, "Given ✓")))) : null,
+      h("h3", null, "Videos"),
+      h("p", null, "One per line as Name | link. YouTube video, playlist and channel links (youtube.com/channel/UC…) work; @handle links don't. Each turn picks up where the last one stopped."),
+      h("textarea", { id: "v-links", class: "pbtn", rows: "4", style: "width:100%;font-family:ui-monospace,monospace;font-size:14px" }, S.video.links),
+      h("div", { class: "prow" },
+        h("label", { for: "v-secs" }, "Seconds per video turn "), h("input", { id: "v-secs", class: "pbtn", type: "number", min: "15", max: "600", step: "15", value: S.video.seconds, style: "width:90px" }),
+        h("button", { class: "pbtn", onclick: () => {
+          S.video.seconds = Math.max(15, +$("#v-secs").value || 60);
+          S.video.links = $("#v-links").value;
+          save();
+          $("#v-saved").textContent = `Saved. ${videoList().length} video${videoList().length === 1 ? "" : "s"} ready.`;
+        } }, "Save videos")),
+      h("p", { id: "v-saved" }, ""),
       h("h3", null, "Microphone practice"),
       h("p", null, "Voice line: in Lily Pad Hop he says the sounds himself while sliding the frog, and the pads stay quiet. If his voice drops out between sounds, the frog splashes back so he learns to keep his voice on (mmmaaat, not m… a… t). Word check adds a tap-and-say-it-fast step after each slide. The speech recognizer is shown for encouragement only and never marks him wrong. Needs the game opened from its own web address (https), not the claude.ai preview."),
       h("div", { class: "prow" }, [["off", "Off"], ["voice", "Voice line"], ["word", "Voice line + word check"]].map(([k, label]) =>

@@ -1,6 +1,6 @@
 """Build Blend Farm: generate voice clips with Piper and bake everything into one HTML file.
 
-    pip install piper-tts lameenc numpy
+    pip install piper-tts lameenc numpy markdown
     python3 build.py            # writes index.html (the game; host it or open it directly) and artifact.html
 
 The curriculum lives in CURRICULUM below. Rules it follows:
@@ -396,7 +396,11 @@ def word_from_sentence(word):
         if ok & set(heard_as(y, rate, context)):
             return y, rate
     print(f"  no clear take for '{word}' after {TAKES} tries; using the first one")
+    UNCONFIRMED.add(word)
     return first
+
+
+UNCONFIRMED = set()
 
 
 SOUNDS_ALIKE = {"sun": {"son"}, "bee": {"be", "b"}, "see": {"sea", "c"}, "i": {"eye", "aye"}, "nine": {"9"},
@@ -475,11 +479,28 @@ def main():
             voice = voice or PiperVoice.load(str(ROOT / "voice" / "en-us-lessac-medium.onnx"))
             cache[key] = synth(voice, text, kind)
         audio[name] = cache[key]
+    # a grown-up's own recordings (exported from the game's recording studio) win over the TTS
+    recorded = ROOT / "voice" / "recordings.json"
+    if recorded.exists():
+        for name, b64 in json.loads(recorded.read_text()).get("sounds", {}).items():
+            with wave.open(io.BytesIO(base64.b64decode(b64))) as w:
+                x = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(float)
+                audio[name] = encode(x, w.getframerate())
+        print(f"using {len(json.loads(recorded.read_text()).get('sounds', {}))} recorded clips from voice/recordings.json")
     used = {f"{t}|{k}" for t, k in clips(data).values()}
     cache_file.write_text(json.dumps({k: v for k, v in cache.items() if k in used}))
+    unconfirmed_file = ROOT / "docs" / "unconfirmed-words.txt"
+    if UNCONFIRMED:
+        unconfirmed_file.write_text("\n".join(sorted(UNCONFIRMED)) + "\n")
+    data["unconfirmed"] = unconfirmed_file.read_text().split() if unconfirmed_file.exists() else []
 
     page = (ROOT / "game.template.html").read_text()
-    page = page.replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))
+    import markdown
+    md = re.sub(r"^((?:  )+)(?=[-*]|\d+\.)", lambda m: "    " * (len(m.group(1)) // 2), (ROOT / "docs" / "TENETS.md").read_text(), flags=re.M)
+    tenets = markdown.markdown(md, extensions=["sane_lists"])
+    tenets = tenets.replace("<a href=", '<a target="_blank" rel="noopener" href=')
+    data["tenetsHtml"] = tenets
+    page = page.replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False).replace("</", "<\\/"))
     page = page.replace("/*__AUDIO__*/null", json.dumps(audio))
     (ROOT / "artifact.html").write_text(page)
     head = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
