@@ -585,6 +585,7 @@ function screen(variant, ...kids) {
   screenGen++;
   hush();
   Mic.stop();
+  if (!screen.keepStudio) Studio.close();
   app.innerHTML = scenery(variant);
   app.append(...kids);
   return screenGen;
@@ -1321,15 +1322,13 @@ function wavBytes(samples, rate) {
   return buf;
 }
 /* cut the silence around a recording, even out the volume, soften the edges */
-function tidy(buffer) {
-  const x = buffer.getChannelData(0), rate = buffer.sampleRate, win = Math.round(rate * .01);
-  const rms = [];
+function tidy(x, rate, floor = .002) {
+  const win = Math.round(rate * .01), rms = [];
   for (let i = 0; i + win <= x.length; i += win) { let s = 0; for (let j = i; j < i + win; j++) s += x[j] * x[j]; rms.push(Math.sqrt(s / win)); }
-  const peak = Math.max(...rms, 1e-6), thr = Math.max(.01, peak * .12);
-  let a = rms.findIndex(r => r > thr), b = rms.length - 1 - [...rms].reverse().findIndex(r => r > thr);
-  if (a < 0) return null;
-  const start = Math.max(0, (a - 4) * win), end = Math.min(x.length, (b + 6) * win);
-  const y = x.slice(start, end);
+  const peak = Math.max(...rms, 1e-6), thr = Math.max(floor * 3, peak * .1, .001);
+  const a = rms.findIndex(r => r > thr), b = rms.length - 1 - [...rms].reverse().findIndex(r => r > thr);
+  if (a < 0 || b - a < 1) return null;
+  const y = x.slice(Math.max(0, (a - 3) * win), Math.min(x.length, (b + 5) * win));
   let top = 0; for (const v of y) top = Math.max(top, Math.abs(v));
   const gain = .9 / Math.max(top, 1e-4), fin = Math.round(rate * .005), fout = Math.round(rate * .025);
   for (let i = 0; i < y.length; i++) {
@@ -1340,58 +1339,107 @@ function tidy(buffer) {
   }
   return { samples: y, rate };
 }
-async function startRecording() {
-  unlock(); setSession("play-and-record");
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-  const rec = new MediaRecorder(stream), chunks = [];
-  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-  const done = new Promise(res => rec.onstop = async () => {
-    stream.getTracks().forEach(t => t.stop()); setSession("playback");
-    try {
-      const raw = await new Blob(chunks, { type: rec.mimeType }).arrayBuffer();
-      const buf = await new Promise((ok, bad) => AC.decodeAudioData(raw, ok, bad));
-      res(tidy(buf));
-    } catch { res(null); }
-  });
-  rec.start();
-  const cap = setTimeout(() => rec.state === "recording" && rec.stop(), 3000);
-  return { stop() { clearTimeout(cap); if (rec.state === "recording") rec.stop(); }, done };
-}
+/* The recording studio keeps one microphone stream open while it's on screen and captures raw
+   audio (no codecs to fail). A tap arms it; it starts on the first sound (keeping a moment from
+   just before) and stops on its own after a short silence. */
+const Studio = {
+  stream: null, src: null, node: null, sink: null, level: 0, floor: .002,
+  preroll: [], take: null, onDone: null,
+  async open() {
+    if (this.stream) return true;
+    unlock(); setSession("play-and-record");
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+    if (AC.state !== "running") await AC.resume();
+    this.src = AC.createMediaStreamSource(this.stream);
+    this.node = AC.createScriptProcessor(1024, 1, 1);
+    this.sink = AC.createGain(); this.sink.gain.value = 0;
+    this.node.onaudioprocess = e => this.feed(e.inputBuffer.getChannelData(0).slice(0));
+    this.src.connect(this.node); this.node.connect(this.sink); this.sink.connect(AC.destination);
+    return true;
+  },
+  close() {
+    if (this.take) this.finish(true);
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    try { this.src && this.src.disconnect(); this.node && this.node.disconnect(); this.sink && this.sink.disconnect(); } catch {}
+    this.stream = this.src = this.node = this.sink = null;
+    setSession("playback");
+  },
+  feed(chunk) {
+    let sum = 0; for (const v of chunk) sum += v * v;
+    const lvl = Math.sqrt(sum / chunk.length), rate = AC.sampleRate, dur = chunk.length / rate;
+    this.level = lvl;
+    const thr = Math.max(this.floor * 3.5, .004);
+    const t = this.take;
+    if (!t || !t.started) {
+      // learn the room's background level while nobody is talking
+      if (lvl < thr) this.floor = this.floor * .95 + lvl * .05;
+      this.preroll.push(chunk);
+      while (this.preroll.length * dur > .35) this.preroll.shift();
+    }
+    if (!t) return;
+    t.elapsed += dur;
+    if (!t.started) {
+      if (lvl > thr) { t.started = true; t.chunks.push(...this.preroll); t.quiet = 0; }
+      else if (t.elapsed > 6) this.finish(true);
+      return;
+    }
+    t.chunks.push(chunk);
+    t.voiced += lvl > thr ? dur : 0;
+    t.quiet = lvl > thr ? 0 : t.quiet + dur;
+    if ((t.voiced > .02 && t.quiet > .55) || t.chunks.length * dur > 3) this.finish(false);
+  },
+  arm(onDone) { this.take = { started: false, chunks: [], elapsed: 0, voiced: 0, quiet: 0 }; this.onDone = onDone; },
+  finish(cancelled) {
+    const t = this.take, cb = this.onDone;
+    this.take = null; this.onDone = null;
+    if (!t || !cb) return;
+    if (cancelled || !t.chunks.length) return cb(null);
+    const n = t.chunks.reduce((a, c) => a + c.length, 0), x = new Float32Array(n);
+    let o = 0; for (const c of t.chunks) { x.set(c, o); o += c.length; }
+    cb(tidy(x, AC.sampleRate, this.floor));
+  },
+};
 function letterSoundList() {
   const seen = new Set(), out = [];
   for (const lv of LEVELS) for (const x of lv.sounds) if (!seen.has(x.p)) { seen.add(x.p); out.push({ ...x, n: lv.n }); }
   return out;
 }
 function showRecorder(i = 0) {
+  screen.keepStudio = true;
+  setTimeout(() => { screen.keepStudio = false; }, 0);
   const list = letterSoundList(), x = list[i], key = snd(x.p);
   const ex = (wordsUpTo(LEVELS.length).find(w => w.t.some(t => t.p === x.p)) || {}).w;
   const status = h("p", { style: "min-height:1.5em;font-weight:700" }, MINE[key] ? "✓ Your recording is in use." : "Using the computer voice.");
   const dots = h("div", { style: "display:flex;flex-wrap:wrap;gap:4px" }, list.map((y, j) =>
     h("button", { class: "gs" + (MINE[snd(y.p)] ? " g" : ""), style: j === i ? "outline:3px solid var(--sv-blue)" : "", onclick: () => showRecorder(j) }, y.g)));
-  let ctl = null;
+  const meter = h("div", { class: "voiceline", style: "position:relative;left:0;right:0;width:100%;max-width:420px" }, h("i"));
   const recBtn = h("button", { class: "big-btn", onclick: async () => {
-    if (ctl) { ctl.stop(); return; }
-    if (!(navigator.mediaDevices && window.MediaRecorder)) { status.textContent = "Recording needs the game opened from its web address (https) in Safari or Chrome."; return; }
-    try { ctl = await startRecording(); } catch { status.textContent = "The microphone was blocked. Allow it for this site and try again."; return; }
-    recBtn.textContent = "■ Stop"; status.textContent = "Recording… say the sound, then tap Stop.";
-    const got = await ctl.done; ctl = null; recBtn.textContent = "● Record";
-    if (!got) { status.textContent = "I didn't hear anything. Try again a little closer."; return; }
-    const wav = wavBytes(got.samples, got.rate);
-    MINE[key] = wav; delete BUF[key];
-    try { await RecDB.set(key, wav); } catch {}
-    status.textContent = `✓ Saved (${(got.samples.length / got.rate).toFixed(2)} s). Tap ▶ to check it.`;
-    dots.children[i].classList.add("g");
-    say(key);
+    if (Studio.take) { Studio.finish(!Studio.take.started); return; }
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { status.textContent = "Recording needs the game opened from its web address (https) in Safari or Chrome."; return; }
+    try { await Studio.open(); } catch { status.textContent = "The microphone was blocked. Allow it for this site (Safari: aA menu → Website Settings → Microphone) and try again."; return; }
+    recBtn.textContent = "■ Stop"; status.textContent = "Listening… say the sound now. It stops by itself when you finish.";
+    Studio.arm(async got => {
+      recBtn.textContent = "● Record";
+      if (!got) { status.textContent = "I didn't catch a sound. Tap ● Record and try again, a little closer to the iPad."; return; }
+      const wav = wavBytes(got.samples, got.rate);
+      MINE[key] = wav; delete BUF[key];
+      try { await RecDB.set(key, wav); } catch {}
+      status.textContent = `✓ Saved (${(got.samples.length / got.rate).toFixed(2)} s). Listen, then tap Next, or record again to redo it.`;
+      dots.children[i].classList.add("g");
+      await wait(150);
+      say(key);
+    });
   } }, "● Record");
   screen("meadow", bar(h("button", { class: "round", "aria-label": "Back to grown-ups corner", onclick: showParent }, "⚙️"),
     h("h2", { style: "text-align:center;font-size:26px" }, "Record letter sounds"), null),
     h("div", { class: "stage scroll" }, h("div", { class: "parent" },
-      h("p", null, "Say just the sound, not the letter's name. Hold continuous sounds for about a second (mmm, sss, aaa, fff). Keep stop sounds short and crisp: b, not buh. Your recordings replace the computer voice everywhere in the game."),
+      h("p", null, "Say just the sound, not the letter's name. Hold continuous sounds for about a second (mmm, sss, aaa, fff). Keep stop sounds short and crisp: b, not buh. Tap ● Record once, then just say it: recording starts when you speak and stops when you go quiet. The bar shows what the microphone hears. Your recordings replace the computer voice everywhere in the game."),
       dots,
       h("div", { style: "display:flex;align-items:center;gap:20px;flex-wrap:wrap" },
         h("div", { class: "tile", style: "font-size:84px;min-width:130px;height:130px" }, x.g),
         h("div", null, h("div", { style: "font-size:22px;font-weight:800" }, `Sound ${i + 1} of ${list.length}`),
           h("div", { class: "sub" }, (ex ? `as in "${ex}" · ` : "") + `Level ${x.n}`))),
+      meter,
       h("div", { class: "prow" }, recBtn,
         h("button", { class: "pbtn", onclick: () => say(key) }, "▶ Play"),
         MINE[key] ? h("button", { class: "pbtn", onclick: async () => { delete MINE[key]; delete BUF[key]; try { await RecDB.del(key); } catch {} showRecorder(i); } }, "Use computer voice") : null),
@@ -1406,6 +1454,16 @@ function showRecorder(i = 0) {
         h("label", { class: "pbtn", for: "rec-import", style: "cursor:pointer" }, "Load recordings file"),
         h("input", { id: "rec-import", type: "file", accept: ".json,application/json", hidden: true, onchange: importRecordings })),
       h("p", { id: "rec-io" }, ""))));
+  const myGen = screenGen;
+  (function drawMeter() {
+    if (screenGen !== myGen) return;
+    const lvl = Studio.level, thr = Math.max(Studio.floor * 3.5, .004);
+    meter.firstChild.style.transform = `scaleY(${Math.min(1, .15 + lvl / (thr * 4))})`;
+    meter.classList.toggle("on", !!Studio.stream && lvl > thr);
+    requestAnimationFrame(drawMeter);
+  })();
+  Studio.open().then(() => { if (screenGen === myGen && !Studio.take) status.textContent = (MINE[key] ? "✓ Your recording is in use. " : "") + "Microphone on. Tap ● Record, then say the sound."; })
+    .catch(() => { status.textContent = "Tap ● Record to turn on the microphone."; });
 }
 function toB64(buf) { let s = ""; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); }
 function exportRecordings() {
