@@ -1,0 +1,1044 @@
+<title>Letters Are Alive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Baloo+2:wght@600;800&display=swap">
+<style>
+/* Layout: one full-screen scene (alpine valley under the Alps) with a slim top bar; each game fills the valley floor. */
+:root {
+  --sky-hi: #8fcbef; --sky-lo: #e4f4fb;
+  --snow: #fbfdff; --rock: #8a9bb3; --rock-dk: #62758f;
+  --meadow: #86c45b; --meadow-dk: #4e9a3f; --meadow-lt: #b5de84;
+  --falu: #9e2b25; --falu-dk: #6f1c18;
+  --sv-yellow: #fecc02; --sv-blue: #1d5ea8;
+  --pond: #4aa9c2; --pond-dk: #2f7f98; --pad: #5fae4a;
+  --ink: #1f2d3d; --ink-soft: #4a5a6c; --paper: #fffbf2; --paper-edge: #eadfc8;
+  --good: #2e9d52; --miss: #d0612d;
+  --font-display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --font-read: "Andika", "Century Gothic", "Avenir Next", system-ui, sans-serif;
+  color-scheme: light;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--sky-lo); color: var(--ink); font-family: var(--font-display);
+  overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; touch-action: manipulation; }
+button:focus-visible { outline: 4px solid var(--sv-yellow); outline-offset: 3px; }
+
+#app { position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+#scenery { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+.cloud { position: absolute; z-index: 0; width: 180px; height: 52px; background: var(--snow); border-radius: 40px; opacity: .85;
+  animation: drift 90s linear infinite; }
+.cloud::before, .cloud::after { content: ""; position: absolute; background: var(--snow); border-radius: 50%; }
+.cloud::before { width: 80px; height: 70px; left: 28px; top: -34px; }
+.cloud::after { width: 60px; height: 52px; left: 92px; top: -22px; }
+@keyframes drift { from { transform: translateX(-240px); } to { transform: translateX(110vw); } }
+
+.bar { position: relative; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
+.bar .grow { flex: 1; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--paper); border: 3px solid var(--paper-edge);
+  border-radius: 999px; padding: 4px 14px; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.round { width: 56px; height: 56px; border-radius: 50%; background: var(--paper); border: 3px solid var(--paper-edge);
+  font-size: 28px; display: grid; place-items: center; flex: none; box-shadow: 0 3px 0 var(--paper-edge); }
+.round:active { transform: translateY(2px); box-shadow: none; }
+.bells { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.bell { width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,.55); border: 3px solid rgba(31,45,61,.15); }
+.bell.ok { background: var(--sv-yellow); border-color: #c99d00; }
+.bell.miss { background: #f3c7a4; border-color: var(--miss); }
+.bell.retry { width: 16px; height: 16px; align-self: center; }
+.bell.now { border-color: var(--sv-blue); transform: scale(1.15); }
+
+.stage { position: relative; z-index: 2; flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 18px; padding: 8px 16px 24px; }
+.scroll { overflow-y: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
+
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
+.title { font-size: clamp(44px, 9vw, 92px); font-weight: 800; color: var(--falu); letter-spacing: -.01em;
+  text-shadow: 0 3px 0 var(--snow), 0 6px 0 rgba(0,0,0,.08); }
+.sub { font-size: 20px; color: var(--ink-soft); }
+.big-btn { background: var(--sv-yellow); color: var(--ink); font-weight: 800; font-size: 28px; border-radius: 22px;
+  padding: 12px 30px; box-shadow: 0 6px 0 #c99d00; border: 3px solid #c99d00; }
+.big-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #c99d00; }
+.big-btn.blue { background: var(--sv-blue); color: var(--snow); border-color: #12427a; box-shadow: 0 6px 0 #12427a; }
+
+/* ---- map ---- */
+.map { position: relative; width: min(720px, 100%); padding-block: 12px 40px; display: flex; flex-direction: column-reverse; gap: 14px; }
+.map svg.trail { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.node { position: relative; display: flex; align-items: center; gap: 12px; width: max-content; max-width: 100%; }
+.node .dot { width: 78px; height: 78px; border-radius: 50%; display: grid; place-items: center; font-size: 36px; flex: none;
+  background: var(--paper); border: 5px solid var(--paper-edge); box-shadow: 0 5px 0 rgba(0,0,0,.12); }
+.node.done .dot { background: var(--snow); border-color: var(--good); }
+.node.current .dot { background: var(--sv-yellow); border-color: var(--falu); animation: bob 1.6s ease-in-out infinite; }
+.node.locked .dot { background: #dfe6ec; border-color: #c4ced8; color: #9aa7b4; font-size: 28px; }
+.node .lbl { background: rgba(255,251,242,.92); border-radius: 14px; padding: 4px 12px; font-size: 19px; line-height: 1.15; min-width: 0; }
+.node .lbl b { display: block; font-size: 14px; color: var(--ink-soft); letter-spacing: .06em; text-transform: uppercase; }
+.node.locked .lbl { opacity: .6; }
+@keyframes bob { 50% { transform: translateY(-6px); } }
+
+/* ---- level card ---- */
+.card { background: var(--paper); border: 4px solid var(--paper-edge); border-radius: 28px; padding: 22px; width: min(640px, 100%);
+  display: flex; flex-direction: column; gap: 16px; box-shadow: 0 8px 0 rgba(0,0,0,.08); }
+.tiles { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.tile { font-family: var(--font-read); font-weight: 700; font-size: 56px; min-width: 88px; height: 88px; padding: 0 12px;
+  border-radius: 20px; background: var(--snow); border: 4px solid var(--sv-blue); color: var(--ink); display: grid; place-items: center; }
+.tile.small { font-size: 34px; min-width: 60px; height: 60px; border-radius: 14px; border-width: 3px; }
+.steps { display: grid; gap: 10px; }
+.step { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 18px; background: var(--snow);
+  border: 3px solid var(--paper-edge); text-align: left; font-size: 24px; font-weight: 800; }
+.step .ic { font-size: 34px; width: 44px; text-align: center; }
+.step small { display: block; font-weight: 600; font-size: 15px; color: var(--ink-soft); font-family: var(--font-display); }
+.step.passed { border-color: var(--good); }
+.step.passed::after { content: "✓"; margin-left: auto; color: var(--good); font-size: 30px; }
+.step.next { border-color: var(--falu); background: #fff3c4; animation: bob 1.8s ease-in-out infinite; }
+.step[disabled] { opacity: .45; cursor: default; }
+.reward { display: flex; align-items: center; gap: 14px; font-size: 18px; color: var(--ink-soft); }
+.reward .shadow { font-size: 54px; filter: brightness(0) opacity(.35); }
+
+/* ---- henhouse eggs ---- */
+.hen { font-size: 84px; line-height: 1; }
+.eggs { display: flex; gap: clamp(12px, 3vw, 36px); flex-wrap: wrap; justify-content: center; }
+.egg { position: relative; width: clamp(108px, 18vw, 150px); aspect-ratio: 4/5; max-width: 100%; border-radius: 50% 50% 48% 48% / 60% 60% 40% 40%;
+  background: radial-gradient(circle at 35% 30%, #fff 0 18%, #f7ecd8 60%, #e8d6b5); border: 4px solid #d8c29c;
+  font-family: var(--font-read); font-weight: 700; font-size: clamp(46px, 7vw, 64px); display: grid; place-items: center;
+  box-shadow: 0 8px 0 rgba(0,0,0,.1); }
+.egg.cracked { background: radial-gradient(circle at 35% 30%, #fffbe0, #ffe27a); border-color: var(--sv-yellow); }
+
+/* ---- pond hop ---- */
+.pond { position: relative; width: min(960px, 100%); padding: 110px 16px 36px; border-radius: 48% 52% 40% 44% / 30% 30% 22% 22%;
+  background: radial-gradient(ellipse at 50% 40%, #7cc7d9, var(--pond) 55%, var(--pond-dk)); border: 6px solid #8bc47a; }
+.pads { display: flex; justify-content: center; gap: clamp(6px, 1.6vw, 18px); padding-left: clamp(40px, 8vw, 90px); }
+.pad { position: relative; width: clamp(64px, 14vw, 132px); aspect-ratio: 1; max-width: 100%; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #8fd46f, var(--pad) 70%); border: 4px solid #3f8a33;
+  display: grid; place-items: center; font-family: var(--font-read); font-weight: 700; font-size: clamp(34px, 7vw, 66px); color: var(--ink);
+  clip-path: polygon(50% 50%, 58% 0, 100% 0, 100% 100%, 0 100%, 0 0, 42% 0); transition: transform .15s; }
+.pad.lit { background: radial-gradient(circle at 40% 35%, #fff6b3, var(--sv-yellow) 75%); border-color: #c99d00; transform: scale(1.06); }
+.pad.silent { color: rgba(31,45,61,.35); }
+.pad.silent.lit { color: var(--sv-blue); }
+.frog { position: absolute; top: 18px; left: 10px; font-size: clamp(64px, 10vw, 92px); line-height: 1; touch-action: none; cursor: grab;
+  filter: drop-shadow(0 6px 0 rgba(0,0,0,.18)); z-index: 3; }
+.frog.hopping { transition: left .28s cubic-bezier(.3,1.6,.5,1); }
+.hint-arrow { position: absolute; top: 44px; left: 110px; font-size: 40px; color: var(--snow); animation: nudge 1.2s ease-in-out infinite; }
+@keyframes nudge { 50% { transform: translateX(16px); } }
+.choices { display: flex; gap: clamp(12px, 3vw, 28px); flex-wrap: wrap; justify-content: center; }
+.pic { width: clamp(118px, 22vw, 176px); aspect-ratio: 1; max-width: 100%; border-radius: 28px; background: var(--paper); border: 5px solid var(--paper-edge);
+  font-size: clamp(64px, 12vw, 104px); display: grid; place-items: center; box-shadow: 0 7px 0 rgba(0,0,0,.1); }
+.pic.right { border-color: var(--good); background: #e5f7df; }
+
+/* ---- meadow spelling ---- */
+.show { font-size: clamp(90px, 16vw, 140px); line-height: 1; }
+.slots { display: flex; gap: 10px; justify-content: center; }
+.slot { font-family: var(--font-read); font-weight: 700; font-size: clamp(40px, 8vw, 64px); min-width: clamp(60px, 11vw, 96px); height: clamp(70px, 12vw, 104px);
+  border-bottom: 6px solid var(--ink); display: grid; place-items: center; color: var(--falu); }
+.flowers { display: flex; gap: clamp(10px, 2vw, 18px); flex-wrap: wrap; justify-content: center; max-width: 760px; }
+.flower { position: relative; width: clamp(84px, 13vw, 112px); aspect-ratio: 1; max-width: 100%; display: grid; place-items: center;
+  font-family: var(--font-read); font-weight: 700; font-size: clamp(34px, 6vw, 50px); color: var(--ink); }
+.flower::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 50%;
+  background: radial-gradient(circle, var(--sv-yellow) 0 30%, transparent 31%),
+    conic-gradient(from 0deg, var(--snow) 0 10%, #f1f4f7 10% 12.5%, var(--snow) 12.5% 22.5%, #f1f4f7 22.5% 25%, var(--snow) 25% 35%, #f1f4f7 35% 37.5%, var(--snow) 37.5% 47.5%, #f1f4f7 47.5% 50%, var(--snow) 50% 60%, #f1f4f7 60% 62.5%, var(--snow) 62.5% 72.5%, #f1f4f7 72.5% 75%, var(--snow) 75% 85%, #f1f4f7 85% 87.5%, var(--snow) 87.5% 97.5%, #f1f4f7 97.5%);
+  box-shadow: 0 5px 0 rgba(0,0,0,.1); }
+.flower.used { visibility: hidden; }
+
+/* ---- story barn ---- */
+.sentence { display: flex; gap: 10px 16px; flex-wrap: wrap; justify-content: center; max-width: 860px; }
+.readtrack { position: relative; padding-bottom: 96px; max-width: 100%; }
+.readtrack .sentence { flex-wrap: nowrap; white-space: nowrap; }
+.frog.reader { top: auto; bottom: 0; font-size: clamp(52px, 8vw, 72px); }
+.sw.lit { background: var(--sv-yellow); }
+.sw { font-family: var(--font-read); font-weight: 700; font-size: clamp(22px, 5.2vw, 56px); padding: 2px 10px; border-radius: 14px; background: rgba(255,251,242,.9); }
+.sw.heart { color: var(--falu); }
+.sw.heart::after { content: "♥"; font-size: .4em; vertical-align: super; margin-left: 2px; }
+.yn { display: flex; gap: 24px; }
+.yn button { font-size: 64px; width: 120px; height: 110px; border-radius: 28px; background: var(--paper); border: 5px solid var(--paper-edge); box-shadow: 0 7px 0 rgba(0,0,0,.1); }
+
+/* ---- speech bubble / feedback ---- */
+.say-btn { font-size: 34px; }
+.bubble { background: var(--paper); border-radius: 22px; padding: 8px 20px; font-size: 24px; font-weight: 800; border: 3px solid var(--paper-edge); max-width: 90%; text-align: center; }
+.shake { animation: shake .45s; }
+@keyframes shake { 20%,60% { transform: translateX(-10px) rotate(-3deg); } 40%,80% { transform: translateX(10px) rotate(3deg); } }
+.pop { animation: pop .5s cubic-bezier(.3,1.8,.5,1); }
+@keyframes pop { from { transform: scale(.3); opacity: 0; } }
+.confetti { position: fixed; z-index: 50; pointer-events: none; font-size: 30px; animation: fall 1.4s ease-in forwards; }
+@keyframes fall { to { transform: translate(var(--dx), 70vh) rotate(540deg); opacity: 0; } }
+
+/* ---- result ---- */
+.result .stars { font-size: 56px; letter-spacing: 4px; }
+.arrive { font-size: 150px; line-height: 1; animation: walkin 1.8s ease-out; }
+@keyframes walkin { from { transform: translateX(-70vw) scaleX(-1); } 70% { transform: translateX(0) scaleX(-1); } }
+
+/* ---- farm ---- */
+.farm { position: relative; flex: 1; width: 100%; min-height: 0; }
+.barn { position: absolute; left: 4%; bottom: 20%; width: clamp(170px, 28vw, 300px); max-width: 100%; }
+.critter { position: absolute; font-size: clamp(48px, 7vw, 72px); line-height: 1; animation: wander var(--t, 9s) ease-in-out infinite alternate; }
+.critter span { display: inline-block; }
+.critter .name { display: block; font-size: 13px; font-weight: 800; text-align: center; background: rgba(255,251,242,.85); border-radius: 8px; padding: 0 6px; white-space: nowrap; }
+@keyframes wander { 0% { transform: translateX(0); } 45% { transform: translateX(var(--w, 60px)); } 50% { transform: translateX(var(--w, 60px)) scaleX(-1); } 100% { transform: translateX(0) scaleX(-1); } }
+.deco { position: absolute; font-size: clamp(40px, 6vw, 60px); line-height: 1; }
+.shop { position: relative; z-index: 4; display: flex; gap: 10px; overflow-x: auto; padding: 10px 16px 14px; background: rgba(255,251,242,.92); border-top: 4px solid var(--paper-edge); }
+.shop button { flex: none; display: flex; flex-direction: column; align-items: center; min-width: 78px; padding: 6px 8px; border-radius: 16px; background: var(--snow); border: 3px solid var(--paper-edge); font-size: 36px; }
+.shop button small { font-size: 16px; font-weight: 800; }
+.shop button[disabled] { opacity: .4; }
+.empty-farm { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); width: min(420px, 90%); }
+
+/* ---- songs ---- */
+.song-list { display: grid; gap: 14px; width: min(560px, 100%); }
+.lyrics { display: flex; flex-direction: column; gap: 10px; align-items: center; width: min(900px, 100%); }
+.line { display: flex; flex-wrap: wrap; gap: 2px 10px; justify-content: center; font-family: var(--font-read); font-weight: 700; font-size: clamp(26px, 4.4vw, 42px); color: rgba(31,45,61,.4); }
+.line.on { color: var(--ink); }
+.syl.on { color: var(--falu); transform: translateY(-6px); display: inline-block; transition: transform .1s; }
+.ladder-word { font-family: var(--font-read); font-weight: 700; font-size: clamp(70px, 14vw, 130px); color: var(--ink); background: var(--paper); border-radius: 30px; padding: 0 36px; border: 5px solid var(--paper-edge); }
+.ladder-steps { display: flex; gap: 8px; align-items: flex-end; height: 120px; }
+.ladder-steps i { width: 26px; border-radius: 8px 8px 0 0; background: var(--snow); border: 3px solid var(--rock); }
+.ladder-steps i.on { background: var(--sv-yellow); border-color: #c99d00; }
+
+/* ---- parent ---- */
+.parent { background: var(--paper); border-radius: 24px; padding: 20px; width: min(760px, 100%); font-family: system-ui, sans-serif; font-size: 16px; display: grid; gap: 18px; }
+.parent h2 { font-family: var(--font-display); font-size: 30px; }
+.parent h3 { font-family: var(--font-display); font-size: 21px; }
+.parent p { margin: 0; line-height: 1.5; max-width: 65ch; color: var(--ink-soft); }
+.grid-sounds { display: flex; flex-wrap: wrap; gap: 6px; }
+.gs { font-family: var(--font-read); font-weight: 700; font-size: 20px; min-width: 52px; padding: 4px 6px; border-radius: 10px; text-align: center; border: 2px solid var(--paper-edge); background: var(--snow); }
+.gs small { display: block; font-family: system-ui; font-weight: 600; font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.gs.g { border-color: var(--good); background: #e5f7df; } .gs.w { border-color: #d4a200; background: #fff5cc; } .gs.b { border-color: var(--miss); background: #fde3d4; }
+.prow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.pbtn { padding: 10px 16px; border-radius: 12px; background: var(--snow); border: 2px solid var(--paper-edge); font-weight: 700; font-family: system-ui; }
+.pbtn.danger { border-color: var(--miss); color: var(--miss); }
+select.pbtn { font-size: 16px; }
+.hold-ring { position: absolute; inset: -4px; border-radius: 50%; border: 4px solid var(--falu); clip-path: inset(0 100% 0 0); }
+.hold-ring.go { transition: clip-path var(--hold, 1.5s) linear; clip-path: inset(0 0 0 0); }
+
+@media (max-width: 560px) {
+  .round { width: 48px; height: 48px; font-size: 24px; }
+  .chip { font-size: 18px; padding: 2px 10px; }
+  .pond { padding-top: 96px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+
+<div id="app"></div>
+
+<script>
+"use strict";
+const DATA = /*__DATA__*/null;
+const AUDIO = /*__AUDIO__*/null;
+const LEVELS = DATA.levels, PIC = DATA.pictures;
+
+/* ---------------- helpers ---------------- */
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "html") el.innerHTML = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) el.append(k.nodeType ? k : String(k));
+  return el;
+}
+const $ = (s, r = document) => r.querySelector(s);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const rand = n => Math.floor(Math.random() * n);
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const today = () => new Date().toISOString().slice(0, 10);
+
+/* ---------------- saved progress ---------------- */
+const KEY = "lettersarealive.v1";
+const fresh = () => ({ unlocked: 1, passed: {}, stars: 0, animals: [], items: [], stats: {}, days: [], history: [] });
+let S;
+try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { S = fresh(); }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
+
+/* ---------------- sound ---------------- */
+let AC = null;
+const BUF = {};
+let voiceSrc = null, speechGen = 0;
+function unlock() {
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === "suspended") AC.resume();
+  } catch {}
+}
+document.addEventListener("pointerdown", unlock, { capture: true });
+async function getBuf(name) {
+  if (BUF[name]) return BUF[name];
+  const b64 = AUDIO[name];
+  if (!b64 || !AC) return null;
+  const bin = atob(b64), arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  BUF[name] = await new Promise((res, rej) => AC.decodeAudioData(arr.buffer, res, rej));
+  return BUF[name];
+}
+function play(name) {
+  return new Promise(async res => {
+    unlock();
+    let b = null;
+    try { b = await getBuf(name); } catch {}
+    if (!b) return res();
+    if (voiceSrc) { try { voiceSrc.stop(); } catch {} }
+    const src = AC.createBufferSource();
+    src.buffer = b;
+    src.connect(AC.destination);
+    voiceSrc = src;
+    // if the browser keeps audio blocked, onended never fires; never let a lesson stall on it
+    const safety = setTimeout(res, b.duration * 1000 + 400);
+    src.onended = () => { clearTimeout(safety); res(); };
+    src.start();
+  });
+}
+async function say(...names) {
+  const g = ++speechGen;
+  for (const n of names.flat()) {
+    if (g !== speechGen) return false;
+    if (typeof n === "number") await wait(n); else await play(n);
+  }
+  return g === speechGen;
+}
+/* "keep your voice on": while a finger rests on a pad, a continuous sound (mmm, sss, aaa) keeps
+   sounding, then flows straight into the next pad's sound */
+const CONTINUOUS = new Set(DATA.continuous);
+let holdSrc = null, holdGain = null;
+async function holdSound(p, sustain) {
+  stopHold(); hush(); unlock();
+  let b = null;
+  try { b = await getBuf(snd(p)); } catch {}
+  if (!b) return;
+  stopHold();
+  const src = AC.createBufferSource(), g = AC.createGain();
+  src.buffer = b;
+  if (sustain && CONTINUOUS.has(p)) { src.loop = true; src.loopStart = b.duration * .35; src.loopEnd = b.duration * .7; }
+  src.connect(g).connect(AC.destination);
+  src.start();
+  holdSrc = src; holdGain = g;
+  if (src.loop) setTimeout(() => { if (holdSrc === src) stopHold(); }, 3000);
+}
+function stopHold() {
+  if (!holdSrc || !AC) return;
+  const t = AC.currentTime;
+  holdGain.gain.setTargetAtTime(0, t, .025);
+  try { holdSrc.stop(t + .12); } catch {}
+  holdSrc = null;
+}
+function hush() { stopHold(); speechGen++; if (voiceSrc) { try { voiceSrc.stop(); } catch {} } }
+const snd = p => p ? "p_" + p : null;
+const wordClip = w => "w_" + w.toLowerCase();
+
+function tone(midi, t, dur, vol = .16) {
+  if (!AC) return;
+  const f = 440 * 2 ** ((midi - 69) / 12);
+  const g = AC.createGain(), o = AC.createOscillator(), o2 = AC.createOscillator(), g2 = AC.createGain();
+  o.type = "triangle"; o.frequency.value = f;
+  o2.type = "sine"; o2.frequency.value = f * 2; g2.gain.value = .35;
+  o.connect(g); o2.connect(g2).connect(g); g.connect(AC.destination);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + .012);
+  g.gain.exponentialRampToValueAtTime(.0008, t + Math.max(.35, dur * 1.3));
+  o.start(t); o2.start(t); o.stop(t + dur * 1.3 + .4); o2.stop(t + dur * 1.3 + .4);
+}
+const SOLFEGE = [72, 74, 76, 77, 79, 81, 83, 84, 86, 88];
+const note = i => { unlock(); AC && tone(SOLFEGE[i % SOLFEGE.length], AC.currentTime, .35); };
+const arpeggio = () => { unlock(); AC && [72, 76, 79, 84].forEach((m, i) => tone(m, AC.currentTime + i * .09, .4)); };
+const yodel = () => { unlock(); AC && [67, 72, 76, 79, 84, 79, 84].forEach((m, i) => tone(m, AC.currentTime + i * .1, .3, .13)); };
+const bonk = () => { unlock(); if (!AC) return; const t = AC.currentTime; tone(52, t, .18, .12); tone(49, t + .12, .25, .12); };
+const praise = () => "q_yes" + (1 + rand(5));
+
+function confetti(n = 18, pool = ["⭐", "🌼", "🎵", "🌸", "✨"]) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (let i = 0; i < n; i++) {
+    const c = h("div", { class: "confetti", style: `left:${10 + rand(80)}vw;top:${rand(20)}vh;--dx:${rand(200) - 100}px;animation-delay:${rand(300)}ms` }, pool[rand(pool.length)]);
+    document.body.append(c);
+    setTimeout(() => c.remove(), 2000);
+  }
+}
+
+/* ---------------- curriculum queries ---------------- */
+function soundsUpTo(n) {
+  const seen = new Map();
+  for (const lv of LEVELS.slice(0, n)) for (const s of lv.sounds) if (!seen.has(s.g)) seen.set(s.g, s);
+  return [...seen.values()];
+}
+function wordsUpTo(n) { return LEVELS.slice(0, n).flatMap(l => l.words); }
+function knownWordSet(n) { return new Set(wordsUpTo(n).map(w => w.w)); }
+const samePic = (a, b) => DATA.samePicture.some(g => g.includes(a) && g.includes(b));
+
+function stagesFor(lv) {
+  const st = [];
+  if (lv.n === 1) st.push("listen");
+  if (lv.sounds.length) st.push("sounds");
+  if (lv.words.length) st.push("blend", "spell");
+  if (lv.n === LEVELS.length) st.push("read");
+  st.push("check");
+  return st;
+}
+const STAGE = {
+  listen: { name: "Listening Game", icon: "👂", how: "Hear two words, pick them in order", reps: 8, need: 7 },
+  sounds: { name: "Egg Sounds", icon: "🥚", how: "Hear a sound, find its letter", reps: 8, need: 7 },
+  blend: { name: "Lily Pad Hop", icon: "🐸", how: "Sound out words, find the picture", reps: 8, need: 7 },
+  spell: { name: "Meadow Spelling", icon: "🌼", how: "Build words sound by sound", reps: 5, need: 4 },
+  read: { name: "Story Barn", icon: "📖", how: "Read a sentence, check the picture", reps: 8, need: 7 },
+  check: { name: "Mastery Climb", icon: "⛰️", how: "Everything mixed, plus review", reps: 10, need: 9 },
+};
+
+/* spaced review: items missed recently or not seen for a while come back more often */
+function st(k) { return S.stats[k] || (S.stats[k] = { s: 0, c: 0, m: 0, t: 0 }); }
+function record(k, ok) {
+  const x = st(k); x.s++; x.t = Date.now();
+  if (ok) { x.c++; x.m = Math.max(0, x.m - 1); } else x.m += 2;
+}
+function weight(k) {
+  const x = S.stats[k];
+  if (!x || !x.s) return 3;
+  return 1 + x.m * 2 + Math.min(3, (Date.now() - x.t) / 864e5);
+}
+function pickWeighted(items, keyOf, avoid) {
+  const pool = items.length > 1 ? items.filter(i => keyOf(i) !== avoid) : items;
+  const ws = pool.map(i => weight(keyOf(i)));
+  let r = Math.random() * ws.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < pool.length; i++) { r -= ws[i]; if (r <= 0) return pool[i]; }
+  return pool[pool.length - 1];
+}
+const sKey = s => "snd:" + s.p;
+const itemKey = (type, item) => type === "sounds" ? sKey(item) : type === "read" ? "sent:" + item.i : type === "listen" ? "pair:" + item.i : wKey(item);
+const wKey = w => "word:" + w.w;
+
+function buildQueue(lv, stage) {
+  const reps = STAGE[stage].reps;
+  let types = Array(reps).fill(stage);
+  if (stage === "check") {
+    types = lv.n === LEVELS.length ? [...Array(6).fill("read"), ...Array(4).fill("blend")]
+      : lv.sounds.length ? ["sounds", "sounds", "sounds", "blend", "blend", "blend", "blend", "spell", "spell", "blend"]
+      : ["blend", "blend", "blend", "blend", "blend", "blend", "spell", "spell", "spell", "blend"];
+    types = shuffle(types);
+  }
+  const q = [];
+  let last = null;
+  for (const type of types) {
+    const review = lv.n > 1 && Math.random() < (stage === "check" ? .3 : .2);
+    let item;
+    if (type === "listen") {
+      const pool = DATA.pairs.map((p, i) => ({ p, i }));
+      item = pickWeighted(pool, x => "pair:" + x.i, last);
+      last = "pair:" + item.i;
+    } else if (type === "sounds") {
+      const pool = review ? soundsUpTo(lv.n - 1) : lv.sounds;
+      item = pickWeighted(pool.length ? pool : lv.sounds, sKey, last);
+      last = sKey(item);
+    } else if (type === "read") {
+      const pool = DATA.sentences.map((s, i) => ({ ...s, i }));
+      item = pickWeighted(pool, s => "sent:" + s.i, last);
+      last = "sent:" + item.i;
+    } else {
+      let pool = review ? wordsUpTo(lv.n - 1) : lv.words;
+      if (!pool.length) pool = wordsUpTo(lv.n);
+      if (type === "spell" && pool.some(w => PIC[w.w])) pool = pool.filter(w => PIC[w.w] || lv.n <= 1);
+      item = pickWeighted(pool, wKey, last);
+      last = wKey(item);
+    }
+    // Mastery Climb from Level 3: half the words are read without the pads sounding out
+    const silent = stage === "check" && type === "blend" && lv.n >= 3 && Math.random() < .5;
+    q.push({ type, item, review, silent });
+  }
+  return q;
+}
+
+/* ---------------- scenery ---------------- */
+function scenery(variant) {
+  const peaks = [[0, 520], [130, 330], [230, 410], [350, 200], [470, 390], [580, 250], [700, 420], [820, 170], [950, 370], [1060, 270], [1200, 420]];
+  let far = "M0,800 L" + peaks.map(p => p.join(",")).join(" L") + " L1200,800 Z";
+  let caps = "";
+  for (let i = 1; i < peaks.length - 1; i++) {
+    const [x, y] = peaks[i];
+    if (y > 350) continue;
+    const s = (380 - y) * .38;
+    caps += `<path d="M${x},${y} L${x - s},${y + s * 1.05} L${x - s * .45},${y + s * .8} L${x - s * .1},${y + s * 1.12} L${x + s * .35},${y + s * .78} L${x + s * .8},${y + s * 1.02} Z" fill="var(--snow)"/>`;
+  }
+  const firs = [[90, 590], [120, 600], [980, 575], [1015, 585], [1050, 570], [700, 610]].map(([x, y]) =>
+    `<path d="M${x},${y - 46} L${x - 16},${y} L${x + 16},${y} Z" fill="#2f6b3a"/>`).join("");
+  const chalet = `<g transform="translate(860,560)"><rect x="0" y="12" width="44" height="28" fill="var(--falu)"/><path d="M-6,14 L22,-6 L50,14 Z" fill="#5a3b2a"/><rect x="17" y="24" width="10" height="16" fill="var(--snow)"/></g>`;
+  const edel = Array.from({ length: 26 }, (_, i) => `<circle cx="${(i * 197) % 1200}" cy="${700 + (i * 53) % 90}" r="${3 + i % 3}" fill="${i % 4 ? "var(--snow)" : "var(--sv-yellow)"}"/>`).join("");
+  return `<svg id="scenery" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--sky-hi)"/><stop offset="1" stop-color="var(--sky-lo)"/></linearGradient>
+    <linearGradient id="rk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--rock)"/><stop offset="1" stop-color="var(--rock-dk)"/></linearGradient></defs>
+    <rect width="1200" height="800" fill="url(#sky)"/>
+    <circle cx="1040" cy="110" r="54" fill="#fff4c2"/>
+    <path d="${far}" fill="url(#rk)"/>${caps}
+    <path d="M0,640 C160,560 330,580 480,610 S780,540 960,580 S1130,610 1200,590 V800 H0 Z" fill="var(--meadow-dk)"/>
+    ${firs}${chalet}
+    <path d="M0,700 C260,650 640,720 1200,660 V800 H0 Z" fill="var(--meadow)"/>
+    <path d="M0,760 C300,730 800,780 1200,740 V800 H0 Z" fill="var(--meadow-lt)" opacity=".7"/>
+    ${variant === "farm" ? "" : edel}
+  </svg><div class="cloud" style="top:9%;animation-delay:-20s"></div><div class="cloud" style="top:22%;transform:scale(.7);animation-delay:-62s;animation-duration:120s"></div>`;
+}
+
+/* ---------------- screen framework ---------------- */
+const app = $("#app");
+let screenGen = 0;
+function screen(variant, ...kids) {
+  screenGen++;
+  hush();
+  app.innerHTML = scenery(variant);
+  app.append(...kids);
+  return screenGen;
+}
+function bar(left, center, right) {
+  return h("div", { class: "bar" }, left, h("div", { class: "grow" }, center), right);
+}
+const starChip = () => h("span", { class: "chip", id: "stars" }, "⭐ ", h("span", null, S.stars));
+function addStars(n) { S.stars += n; save(); const el = $("#stars span"); if (el) { el.textContent = S.stars; el.parentElement.classList.remove("pop"); void el.offsetWidth; el.parentElement.classList.add("pop"); } }
+/* during a lesson the exit needs a 1-second hold, so a stray tap can't end the exercise */
+function holdBtn(fn, ms = 1000) {
+  let timer = null;
+  const ring = h("span", { class: "hold-ring", style: `--hold:${ms}ms` });
+  const btn = h("button", { class: "round", style: "position:relative", "aria-label": "Press and hold to leave" }, "🏔️", ring);
+  const stop = () => { clearTimeout(timer); ring.classList.remove("go"); };
+  btn.addEventListener("pointerdown", () => { ring.classList.add("go"); timer = setTimeout(fn, ms); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(e => btn.addEventListener(e, stop));
+  btn.addEventListener("keydown", e => { if (e.key === "Enter") fn(); });
+  return btn;
+}
+const homeBtn = (fn = showMap) => h("button", { class: "round", "aria-label": "Back to the map", onclick: fn }, "🏔️");
+
+function markDay() {
+  if (!S.days.includes(today())) { S.days.push(today()); S.days = S.days.slice(-60); save(); }
+}
+function streakDays() {
+  let n = 0; const d = new Date();
+  for (;;) { const k = d.toISOString().slice(0, 10); if (!S.days.includes(k)) break; n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+/* ---------------- map ---------------- */
+function showMap() {
+  const map = h("div", { class: "map" });
+  LEVELS.forEach((lv, i) => {
+    const n = lv.n, done = S.animals.includes(i), cur = n === S.unlocked && !done, locked = n > S.unlocked;
+    const offset = Math.round((Math.sin(i * 1.1) * .5 + .5) * 55);
+    const node = h("button", {
+      class: "node " + (done ? "done" : cur ? "current" : locked ? "locked" : ""), style: `margin-left:${offset}%;`,
+      "aria-label": `Level ${n}: ${lv.title}${locked ? " (locked)" : ""}`,
+      onclick: () => locked ? bonk() : showLevel(n),
+    },
+      h("span", { class: "dot" }, done ? lv.animal.e : locked ? "🔒" : n),
+      h("span", { class: "lbl" }, h("b", null, "Level " + n), lv.title));
+    map.append(node);
+  });
+  const trail = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  trail.setAttribute("class", "trail");
+  map.prepend(trail);
+  const streak = streakDays();
+  screen("map",
+    bar(h("button", { class: "round", "aria-label": "My farm", onclick: showFarm }, "🛖"),
+      h("div", { style: "display:flex;gap:10px;justify-content:center;flex-wrap:wrap" },
+        h("button", { class: "chip", onclick: showSongs }, "🎵 Songs"),
+        streak ? h("span", { class: "chip" }, "☀️ " + streak + (streak === 1 ? " day" : " days")) : null),
+      h("div", { style: "display:flex;gap:10px;align-items:center" }, starChip(), parentGear())),
+    h("div", { class: "stage scroll", id: "mapscroll" },
+      h("h1", { class: "title" }, "Letters Are Alive"),
+      h("p", { class: "sub", style: "margin:0" }, "Climb the mountain one sound at a time"),
+      map));
+  requestAnimationFrame(() => {
+    const nodes = [...map.querySelectorAll(".node .dot")], box = map.getBoundingClientRect();
+    const pts = nodes.map(d => { const r = d.getBoundingClientRect(); return [r.left + r.width / 2 - box.left, r.top + r.height / 2 - box.top]; });
+    trail.innerHTML = `<polyline points="${pts.map(p => p.join(",")).join(" ")}" fill="none" stroke="rgba(255,251,242,.9)" stroke-width="10" stroke-dasharray="2 16" stroke-linecap="round"/>`;
+    const cur = map.querySelector(".node.current") || map.querySelector(".node:not(.locked)");
+    cur && cur.scrollIntoView({ block: "center" });
+  });
+}
+
+/* hold the gear for 1.5 s so little hands don't wander into settings */
+function parentGear() {
+  let timer = null;
+  const ring = h("span", { class: "hold-ring" });
+  const btn = h("button", { class: "round", style: "position:relative", "aria-label": "Grown-ups: press and hold" }, "⚙️", ring);
+  const stop = () => { clearTimeout(timer); ring.classList.remove("go"); };
+  btn.addEventListener("pointerdown", () => { ring.classList.add("go"); timer = setTimeout(showParent, 1500); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(e => btn.addEventListener(e, stop));
+  btn.addEventListener("keydown", e => { if (e.key === "Enter") showParent(); });
+  return btn;
+}
+
+/* ---------------- level screen ---------------- */
+function showLevel(n) {
+  const lv = LEVELS[n - 1], stages = stagesFor(lv), passed = S.passed[n] || 0, done = S.animals.includes(n - 1);
+  const card = h("div", { class: "card" },
+    h("div", null, h("div", { class: "sub" }, "Level " + n), h("h2", { style: "font-size:40px" }, lv.title)));
+  if (lv.sounds.length) {
+    card.append(h("div", { class: "sub" }, "New sounds. Tap to hear them."),
+      h("div", { class: "tiles" }, lv.sounds.map(s => h("button", { class: "tile", onclick: e => { e.currentTarget.classList.remove("pop"); void e.currentTarget.offsetWidth; e.currentTarget.classList.add("pop"); say(snd(s.p)); } }, s.g))));
+  } else if (lv.hearts.length) {
+    card.append(h("div", { class: "sub" }, "Heart words. We learn these by heart."),
+      h("div", { class: "tiles" }, lv.hearts.map(w => h("button", { class: "tile small", style: "color:var(--falu)", onclick: () => say(wordClip(w)) }, w + " ♥"))));
+  } else {
+    card.append(h("div", { class: "sub" }, lv.note || "New kinds of words"),
+      h("div", { class: "tiles" }, lv.words.slice(0, 4).map(w => h("span", { class: "tile small" }, w.w))));
+  }
+  card.append(h("div", { class: "steps" }, stages.map((stg, i) => {
+    const info = STAGE[stg], isPassed = i < passed, isNext = i === passed && !done, locked = i > passed && !done;
+    return h("button", { class: "step" + (isPassed ? " passed" : "") + (isNext ? " next" : ""), disabled: locked,
+      onclick: () => runStage(n, stg, i) },
+      h("span", { class: "ic" }, locked ? "🔒" : info.icon),
+      h("span", null, info.name, h("small", null, info.how + " · " + info.need + " of " + info.reps + " to pass")));
+  })));
+  card.append(h("div", { class: "reward" },
+    h("span", { class: done ? "" : "shadow", style: "font-size:54px" }, lv.animal.e),
+    h("span", null, done ? `The ${lv.animal.name} lives on your farm.` : `Master every step to bring the ${lv.animal.name} to your farm.`)));
+  screen("level", bar(homeBtn(), null, starChip()), h("div", { class: "stage scroll" }, card));
+}
+
+/* ---------------- running a stage ---------------- */
+async function runStage(n, stage, stageIndex) {
+  markDay();
+  const lv = LEVELS[n - 1], queue = buildQueue(lv, stage), info = STAGE[stage];
+  const bells = h("div", { class: "bells", "aria-label": "Progress" }, queue.map(() => h("span", { class: "bell" })));
+  const area = h("div", { class: "stage" });
+  const gen = screen(stage === "blend" ? "pond" : "meadow", bar(holdBtn(() => showLevel(n)), bells, starChip()), area);
+  let good = 0, combo = 0;
+  for (let i = 0; i < queue.length; i++) {
+    if (gen !== screenGen) return;
+    bells.children[i].classList.add("now");
+    const { type, item } = queue[i];
+    window.__current = queue[i];
+    const ok = await ACTIVITIES[type](area, item, lv, gen, queue[i].silent);
+    if (gen !== screenGen) return;
+    const key = itemKey(type, item);
+    record(key, ok);
+    bells.children[i].classList.remove("now");
+    bells.children[i].classList.add(ok ? "ok" : "miss");
+    // a missed item comes back three turns later (it doesn't count toward passing)
+    if (!ok && !queue[i].retry) {
+      const at = Math.min(queue.length, i + 3);
+      queue.splice(at, 0, { ...queue[i], retry: true });
+      bells.insertBefore(h("span", { class: "bell retry" }), bells.children[at] || null);
+    }
+    if (queue[i].retry) { if (ok) addStars(1); continue; }
+    if (ok) { good++; combo++; addStars(2); } else { combo = 0; addStars(1); }
+    if (combo && combo % 5 === 0) { yodel(); confetti(24); }
+    save();
+  }
+  const scored = queue.filter(q => !q.retry).length;
+  const pass = good >= info.need;
+  S.history.push({ d: today(), n, stage, good, of: scored });
+  S.history = S.history.slice(-300);
+  let levelUp = false;
+  const stages = stagesFor(lv);
+  if (pass) {
+    S.passed[n] = Math.max(S.passed[n] || 0, stageIndex + 1);
+    addStars(10);
+    if (S.passed[n] >= stages.length && !S.animals.includes(n - 1)) {
+      S.animals.push(n - 1);
+      S.unlocked = Math.max(S.unlocked, Math.min(LEVELS.length, n + 1));
+      addStars(25);
+      levelUp = true;
+    }
+  }
+  save();
+  showResult(n, stage, stageIndex, good, scored, pass, levelUp);
+}
+
+function showResult(n, stage, stageIndex, good, total, pass, levelUp) {
+  const lv = LEVELS[n - 1], info = STAGE[stage];
+  const stars = "★".repeat(Math.round(good / total * 5)).padEnd(5, "☆");
+  const kids = [h("div", { class: "stars", style: "color:#c99d00" }, stars),
+    h("h2", { style: "font-size:44px" }, pass ? (levelUp ? "Level mastered!" : info.name + " mastered!") : "So close!"),
+    h("div", { class: "sub" }, `${good} of ${total} on the first try. ${pass ? "" : `We need ${info.need} to move on, so let's practice once more.`}`)];
+  if (levelUp) {
+    kids.unshift(h("button", { class: "arrive", onclick: () => say("a_" + (n - 1)) }, lv.animal.e));
+    kids.push(h("div", { class: "bubble" }, `The ${lv.animal.name} moved to your farm!`));
+  }
+  const next = pass ? (levelUp ? () => showLevel(Math.min(LEVELS.length, n + 1)) : () => showLevel(n)) : () => runStage(n, stage, stageIndex);
+  kids.push(h("div", { style: "display:flex;gap:14px;flex-wrap:wrap;justify-content:center" },
+    levelUp ? h("button", { class: "big-btn blue", onclick: showFarm }, "Visit the farm") : null,
+    h("button", { class: "big-btn", onclick: next }, pass ? "Keep climbing" : "Practice again")));
+  screen("meadow", bar(homeBtn(), null, starChip()), h("div", { class: "stage result card-free" }, ...kids));
+  if (pass) { confetti(levelUp ? 40 : 20); arpeggio(); }
+  say(levelUp ? ["q_levelup", 300, "a_" + (n - 1)] : pass ? ["q_passed"] : ["q_almost"]);
+}
+
+/* ---------------- finger sliding ---------------- */
+/* One finger drags a handle left to right under the targets, which light up strictly in order.
+   Only the first finger that grabs the handle counts; a palm or a second finger anywhere else is
+   ignored, and touches away from the handle and targets do nothing. A quick tap on the handle hops
+   it to the next target for children who can't drag yet. */
+function slideAcross(host, handle, targets, onReach, onGrab, onRelease) {
+  let visited = 0, pid = null, grab = 0, downX = 0, x = 10, done = false;
+  const centerOf = i => { const hr = host.getBoundingClientRect(), r = targets[i].getBoundingClientRect(); return r.left + r.width / 2 - hr.left - handle.offsetWidth / 2; };
+  const setX = v => { x = v; handle.style.left = v + "px"; };
+  const reach = () => {
+    const i = visited++;
+    targets[i].classList.add("lit");
+    if (visited === targets.length) done = true;
+    onReach(i, done, pid !== null);
+  };
+  handle.addEventListener("pointerdown", e => {
+    if (done || pid !== null) return;
+    pid = e.pointerId; grab = e.clientX - x; downX = e.clientX;
+    handle.classList.remove("hopping");
+    try { handle.setPointerCapture(pid); } catch {}
+    e.preventDefault();
+    onGrab && onGrab();
+  });
+  handle.addEventListener("pointermove", e => {
+    if (e.pointerId !== pid || done) return;
+    const limit = centerOf(visited) + 8;
+    setX(Math.max(10, Math.min(limit, e.clientX - grab)));
+    while (!done && x >= centerOf(visited) - 4) reach();
+  });
+  handle.addEventListener("pointerup", e => {
+    if (e.pointerId !== pid) return;
+    pid = null;
+    onRelease && onRelease();
+    if (!done && Math.abs(e.clientX - downX) < 6) { handle.classList.add("hopping"); setX(centerOf(visited)); reach(); }
+  });
+  handle.addEventListener("pointercancel", e => { if (e.pointerId === pid) { pid = null; onRelease && onRelease(); } });
+  requestAnimationFrame(() => setX(10));
+  return {
+    reset() { visited = 0; done = false; pid = null; targets.forEach(t => t.classList.remove("lit")); handle.classList.add("hopping"); setX(10); },
+  };
+}
+
+/* ---------------- activities ---------------- */
+function speakerBtn(fn) { return h("button", { class: "round say-btn", "aria-label": "Hear it again", onclick: fn }, "🔊"); }
+
+const CONFUSABLE = [["b", "d", "p"], ["m", "n"], ["i", "e"], ["a", "o", "u"], ["f", "v", "th"], ["sh", "ch"], ["ee", "ea"], ["ir", "er"]];
+function eggChoices(target, lvN) {
+  const known = soundsUpTo(lvN).filter(s => s.g !== target.g);
+  const n = Math.min(lvN < 3 ? 3 : 4, known.length + 1);
+  const buddies = CONFUSABLE.find(g => g.includes(target.g)) || [];
+  const ranked = shuffle(known).sort((a, b) => buddies.includes(b.g) - buddies.includes(a.g));
+  const out = [target], usedP = new Set([target.p]);
+  for (const s of ranked) { if (out.length >= n) break; if (!usedP.has(s.p)) { out.push(s); usedP.add(s.p); } }
+  return shuffle(out);
+}
+
+const ACTIVITIES = {
+  /* listening warm-up: hear "dog ... fish", tap 🐶🐟 not 🐟🐶. Blending by ear comes before blending letters. */
+  listen(area, pair, lv, gen) {
+    return new Promise(resolve => {
+      let first = true, busy = false;
+      const [a, b] = pair.p;
+      const cue = () => say("q_listen2", 200, wordClip(a), 250, wordClip(b));
+      const opts = shuffle([[a, b], [b, a]]).map(o => h("button", { class: "pic pop", style: "width:clamp(150px,30vw,240px);aspect-ratio:auto;padding:14px 0", "aria-label": "Pictures in this order",
+        onclick: async e => {
+          if (busy) return;
+          const el = e.currentTarget;
+          if (o[0] !== a) { first = false; el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk(); busy = true; await cue(); busy = false; return; }
+          busy = true; el.classList.add("right"); arpeggio();
+          await say(wordClip(a), 120, wordClip(b), 150, praise());
+          if (gen === screenGen) resolve(first);
+        } }, PIC[o[0]] + PIC[o[1]]));
+      area.replaceChildren(h("div", { class: "hen" }, "👂"), h("div", { class: "choices" }, opts), speakerBtn(cue));
+      cue();
+    });
+  },
+
+  /* hear a sound, tap the egg with that letter */
+  sounds(area, target, lv, gen) {
+    return new Promise(resolve => {
+      let first = true;
+      const cue = () => say("q_find", 120, snd(target.p));
+      const eggs = eggChoices(target, lv.n).map(s => h("button", { class: "egg pop", "aria-label": "Letter " + s.g, onclick: async e => {
+        const el = e.currentTarget;
+        if (s.p !== target.p) { first = false; el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk(); await say("q_tryagain", snd(target.p)); return; }
+        el.classList.add("cracked"); el.textContent = "🐤"; arpeggio();
+        await say(snd(target.p), 150, praise());
+        if (gen === screenGen) resolve(first);
+      } }, s.g));
+      area.replaceChildren(h("div", { class: "hen" }, "🐔"), h("div", { class: "eggs" }, eggs), speakerBtn(cue));
+      cue();
+    });
+  },
+
+  /* drag the frog across lily pads; each pad says its sound; then pick the picture */
+  blend(area, word, lv, gen, silent) {
+    return new Promise(resolve => {
+      let first = true;
+      const pond = h("div", { class: "pond" });
+      // in "read it yourself" rounds the pads don't sound out; tapping one still helps if he's stuck
+      const pads = word.t.map((t, i) => h("button", { class: "pad" + (t.p ? "" : " silent"), "aria-label": "Sound " + t.g,
+        onclick: () => { if (silent) first = false; t.p ? say(snd(t.p)) : note(7); } }, t.g));
+      const padRow = h("div", { class: "pads" }, pads);
+      const frog = h("div", { class: "frog", role: "button", "aria-label": "Frog: drag across or tap to hop" }, "🐸");
+      const arrow = h("div", { class: "hint-arrow" }, "➜");
+      const below = h("div", { class: "choices", style: "min-height:40px" });
+      pond.append(padRow, frog, arrow);
+      area.replaceChildren(silent ? h("div", { class: "bubble" }, "🤫 Read it yourself! Slide and say each sound.") : "", pond, below);
+      let busy = false;
+      const slide = slideAcross(pond, frog, pads, (i, last, dragging) => {
+        const t = word.t[i];
+        if (silent) note(i);
+        else if (t.p) holdSound(t.p, dragging && !last);
+        else note(7);
+        if (last) finish();
+      }, () => { arrow.hidden = true; }, () => { if (holdSrc && holdSrc.loop) stopHold(); });
+      function reset() { busy = false; slide.reset(); arrow.hidden = false; below.replaceChildren(); }
+
+      async function finish() {
+        await wait(650);
+        if (gen !== screenGen) return;
+        const picture = PIC[word.w];
+        if (!picture) return sayItCheck();
+        const known = wordsUpTo(lv.n).filter(w => PIC[w.w] && w.w !== word.w && !samePic(w.w, word.w) && PIC[w.w] !== picture);
+        const score = w => { let s = 0; for (let i = 0; i < Math.min(w.w.length, word.w.length); i++) if (w.w[i] === word.w[i]) s += 2; if (w.w.length === word.w.length) s += 1; return s + Math.random() * 1.5; };
+        const opts = [];
+        for (const w of known.sort((a, b) => score(b) - score(a))) { if (opts.length >= 2) break; if (!opts.some(o => PIC[o.w] === PIC[w.w])) opts.push(w); }
+        const all = shuffle([word, ...opts]);
+        below.replaceChildren(...all.map(w => h("button", { class: "pic pop", "aria-label": "Picture choice", onclick: async e => {
+          const el = e.currentTarget;
+          if (busy) return;
+          busy = true;
+          if (w !== word) {
+            first = false; el.classList.add("shake"); bonk();
+            await say("q_again");
+            if (gen === screenGen) reset();
+            return;
+          }
+          el.classList.add("right"); arpeggio();
+          frog.textContent = "💦";
+          await say(wordClip(word.w), 150, praise());
+          if (gen === screenGen) resolve(first);
+        } }, PIC[w.w])));
+        say("q_fast");
+      }
+      function sayItCheck() {
+        const bell = h("button", { class: "big-btn pop", onclick: async () => {
+          bell.disabled = true;
+          await say(wordClip(word.w));
+          below.replaceChildren(h("div", { class: "bubble" }, "Did you say it?"),
+            h("button", { class: "round", style: "width:84px;height:84px;font-size:44px", "aria-label": "Yes, I said it", onclick: async () => { arpeggio(); await say(praise()); resolve(first); } }, "👍"),
+            h("button", { class: "round", style: "width:84px;height:84px;font-size:44px", "aria-label": "Not yet, hop again", onclick: () => { first = false; reset(); } }, "🔁"));
+        } }, "🔔 Ring");
+        below.replaceChildren(bell);
+        say("q_say");
+      }
+      if (!S.hopTaught) { S.hopTaught = true; say("q_hop"); }
+    });
+  },
+
+  /* hear the word, see the picture, tap letters in order; each correct letter climbs the scale */
+  spell(area, word, lv, gen) {
+    return new Promise(resolve => {
+      let first = true, pos = 0;
+      const slots = word.t.map(() => h("span", { class: "slot" }));
+      const inWord = new Set(word.t.map(t => t.g)), inWordP = new Set(word.t.map(t => t.p).filter(Boolean));
+      const extras = shuffle(soundsUpTo(lv.n).filter(s => !inWord.has(s.g) && !inWordP.has(s.p) && !s.g.includes("_"))).slice(0, Math.max(2, 6 - inWord.size));
+      const bank = shuffle([...new Map(word.t.map(t => [t.g, t])).values(), ...extras.map(s => ({ g: s.g, p: s.p }))]);
+      const cue = () => say(wordClip(word.w));
+      const flowers = bank.map(t => h("button", { class: "flower pop", "aria-label": "Letter " + t.g, onclick: async e => {
+        const el = e.currentTarget, want = word.t[pos];
+        if (!want) return;
+        if (t.g !== want.g) {
+          first = false; el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); bonk();
+          await say(snd(t.p) || [], 200, "q_tryagain", wordClip(word.w));
+          return;
+        }
+        slots[pos].textContent = want.g; slots[pos].classList.add("pop");
+        note(pos); want.p && say(snd(want.p));
+        pos++;
+        if (!word.t.slice(pos).some(x => x.g === t.g)) el.classList.add("used");
+        if (pos === word.t.length) {
+          await wait(500); arpeggio();
+          await say(wordClip(word.w), 150, praise());
+          if (gen === screenGen) resolve(first);
+        }
+      } }, t.g));
+      const picture = PIC[word.w];
+      area.replaceChildren(
+        h("div", { style: "display:flex;align-items:center;gap:18px" }, picture ? h("div", { class: "show pop" }, picture) : null, speakerBtn(cue)),
+        h("div", { class: "slots" }, slots), h("div", { class: "flowers" }, flowers));
+      say("q_spell", 150, wordClip(word.w));
+    });
+  },
+
+  /* read a sentence; does the picture match? */
+  read(area, sent, lv, gen) {
+    return new Promise(resolve => {
+      let first = true;
+      const hearts = new Set(LEVELS[LEVELS.length - 1].hearts.map(w => w.toLowerCase()));
+      const all = wordsUpTo(LEVELS.length).concat(DATA.extraWords);
+      const words = sent.s.split(" ").map((w, i) => {
+        const lw = w.toLowerCase(), dec = all.find(x => x.w === lw);
+        const isHeart = hearts.has(lw) || !dec;
+        return h("button", { class: "sw" + (isHeart ? " heart" : ""), onclick: () => isHeart ? say(wordClip(lw)) : say(dec.t.filter(t => t.p).map(t => [snd(t.p), 60])) }, i ? w : w[0].toUpperCase() + w.slice(1));
+      });
+      const matches = Math.random() < .5;
+      let busy = false;
+      const answer = async (yes, el) => {
+        if (busy) return;
+        busy = true;
+        if (yes !== matches) { first = false; el.classList.add("shake"); bonk(); await say("q_again"); el.classList.remove("shake"); busy = false; slide.reset(); ynRow.hidden = true; return; }
+        arpeggio();
+        await say("s_" + sent.i, 150, praise());
+        if (gen === screenGen) resolve(first);
+      };
+      const bug = h("div", { class: "frog reader", role: "button", "aria-label": "Ladybug: slide under the words" }, "🐞");
+      const track = h("div", { class: "readtrack" }, h("div", { class: "sentence" }, words), bug);
+      const ynRow = h("div", { class: "yn", hidden: true },
+        h("button", { "aria-label": "Yes, it matches", onclick: e => answer(true, e.currentTarget) }, "👍"),
+        h("button", { "aria-label": "No, it does not match", onclick: e => answer(false, e.currentTarget) }, "👎"));
+      area.replaceChildren(track, h("div", { class: "show pop" }, matches ? sent.yes : sent.no), ynRow);
+      const slide = slideAcross(track, bug, words, (i, last) => { if (last) { ynRow.hidden = false; say("q_match"); } });
+
+    });
+  },
+};
+
+/* ---------------- farm ---------------- */
+const SHOP = [
+  { id: "flowers", e: "🌼", cost: 15 }, { id: "tulips", e: "🌷", cost: 15 }, { id: "fir", e: "🌲", cost: 25 },
+  { id: "hay", e: "🌾", cost: 20 }, { id: "wood", e: "🪵", cost: 20 }, { id: "sunflower", e: "🌻", cost: 30 },
+  { id: "apple", e: "🍎", cost: 30 }, { id: "tractor", e: "🚜", cost: 80 }, { id: "balloon", e: "🎈", cost: 40 },
+  { id: "kite", e: "🪁", cost: 50 }, { id: "house", e: "🏡", cost: 120 }, { id: "rainbow", e: "🌈", cost: 150 },
+];
+function showFarm() {
+  const farm = h("div", { class: "farm" });
+  farm.innerHTML = `<svg class="barn" viewBox="0 0 300 240" aria-hidden="true">
+    <path d="M20,100 L150,20 L280,100 Z" fill="#3b2f2a"/><rect x="36" y="92" width="228" height="140" fill="var(--falu)"/>
+    <path d="M36,92 L150,30 L264,92" fill="none" stroke="var(--snow)" stroke-width="8"/>
+    <rect x="105" y="130" width="90" height="102" fill="var(--falu-dk)" stroke="var(--snow)" stroke-width="7"/>
+    <path d="M105,130 L195,232 M195,130 L105,232" stroke="var(--snow)" stroke-width="6"/>
+    <rect x="128" y="62" width="44" height="32" fill="var(--snow)"/><rect x="134" y="68" width="32" height="20" fill="#3b2f2a"/>
+    <rect x="52" y="120" width="34" height="30" fill="var(--snow)"/><rect x="214" y="120" width="34" height="30" fill="var(--snow)"/></svg>`;
+  S.items.forEach(it => { const s = SHOP.find(x => x.id === it.id); s && farm.append(h("div", { class: "deco", style: `left:${it.x}%;top:${it.y}%` }, s.e)); });
+  S.animals.forEach((idx, k) => {
+    const a = LEVELS[idx].animal;
+    const x = 30 + ((k * 37) % 55), y = 38 + ((k * 23) % 42);
+    farm.append(h("button", { class: "critter", style: `left:${x}%;top:${y}%;--t:${7 + (k % 4) * 2}s;--w:${40 + (k % 3) * 30}px`,
+      "aria-label": a.name, onclick: e => { const s = e.currentTarget.firstChild; s.classList.remove("pop"); void s.offsetWidth; s.classList.add("pop"); say("a_" + idx); } },
+      h("span", null, a.e), h("span", { class: "name" }, a.name)));
+  });
+  if (!S.animals.length) farm.append(h("div", { class: "bubble empty-farm" }, "Your farm is waiting for friends. Master Level 1 and a Gotland sheep will move in!"));
+  const shop = h("div", { class: "shop", "aria-label": "Farm shop" }, SHOP.map(s => h("button", {
+    disabled: S.stars < s.cost, "aria-label": `Buy ${s.id} for ${s.cost} stars`,
+    onclick: () => { if (S.stars < s.cost) return; addStars(-s.cost); S.items.push({ id: s.id, x: 8 + rand(84), y: 30 + rand(55) }); save(); arpeggio(); showFarm(); } },
+    s.e, h("small", null, "⭐" + s.cost))));
+  screen("farm", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu)" }, "My Farm"), starChip()), farm, shop);
+}
+
+/* ---------------- songs ---------------- */
+// melodies as [midi, beats, syllable]; words in {braces} are readable words he can tap
+const G = 67, A = 69, B = 71, D = 62, E = 64, C5 = 72;
+const TWINKLE = [[60, 60, 67, 67, 69, 69, 67], [65, 65, 64, 64, 62, 62, 60], [67, 67, 65, 65, 64, 64, 62], [67, 67, 65, 65, 64, 64, 62], [60, 60, 67, 67, 69, 69, 67], [65, 65, 64, 64, 62, 62, 60]];
+const FROG_WORDS = [["Lit", "tle", "frog", "up", "on", "a", "log"], ["hop", "and", "hop", "in", "to", "the", "bog"],
+  ["up", "the", "hill", "and", "down", "the", "glen"], ["splish", "and", "splash", "and", "hop", "a", "gain"],
+  ["Lit", "tle", "frog", "up", "on", "a", "log"], ["sing", "a", "song", "and", "hop", "a", "long"]];
+function frogSong() {
+  return TWINKLE.map((line, li) => line.map((m, i) => [m, i === 6 ? 2 : 1, FROG_WORDS[li][i]]));
+}
+function macdonald() {
+  const friends = S.animals.length ? S.animals.slice(-4) : [0];
+  const names = { 0: ["sheep", "baa"], 1: ["hen", "cluck"], 2: ["cow", "moo"], 3: ["pig", "oink"], 4: ["goat", "maa"], 5: ["pony", "neigh"], 6: ["duck", "quack"], 7: ["cat", "meow"], 8: ["dog", "woof"], 9: ["rab", "thump"], 10: ["goose", "honk"], 11: ["frog", "rib"], 12: ["bee", "buzz"], 13: ["hog", "snuff"], 14: ["horse", "clip"], 15: ["deer", "snort"], 16: ["moose", "hrrm"] };
+  const eieio = [[B, 1, "E"], [B, 1, "I"], [A, 1, "E"], [A, 1, "I"], [G, 2, "O"]];
+  const lines = [];
+  for (const f of friends) {
+    const [who, noise] = names[f] || ["sheep", "baa"];
+    lines.push([[G, 1, "Old"], [G, 1, "Mac"], [G, 1, "Don"], [D, 1, "ald"], [E, 1, "had"], [E, 1, "a"], [D, 2, "farm"]], eieio,
+      [[D, .5, "and"], [D, .5, "on"], [G, 1, "that"], [G, 1, "farm"], [G, 1, "he"], [D, 1, "had"], [E, .5, "a"], [E, 1.5, who], [D, 2, ""]], eieio,
+      [[D, .5, "with"], [D, .5, "a"], [G, 1, noise], [G, 1, noise], [G, 1, "here,"], [D, .5, "and"], [D, .5, "a"], [G, 1, noise], [G, 1, noise], [G, 1, "there"]],
+      [[G, .5, "here"], [G, .5, "a"], [G, 1, noise], [G, .5, "there"], [G, .5, "a"], [G, 1, noise], [G, .5, "ev"], [G, .5, "ery"], [G, .5, "where"], [G, .5, "a"], [G, 1, noise], [G, 1, noise]],
+      [[G, 1, "Old"], [G, 1, "Mac"], [G, 1, "Don"], [D, 1, "ald"], [E, 1, "had"], [E, 1, "a"], [D, 2, "farm"]], eieio);
+  }
+  return lines;
+}
+const SONGS = [
+  { id: "frog", name: "Little Frog on a Log", icon: "🐸", how: "To the tune of Twinkle Twinkle", lines: frogSong, bpm: 96 },
+  { id: "farm", name: "Old MacDonald's Swedish Farm", icon: "🐄", how: "Sings about the animals on your farm", lines: macdonald, bpm: 120 },
+  { id: "ladder", name: "Mountain Word Ladder", icon: "🏔️", how: "Read a word on every note, up and down the scale", ladder: true },
+];
+function showSongs() {
+  screen("meadow", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu)" }, "Sing Along"), starChip()),
+    h("div", { class: "stage" }, h("div", { class: "song-list" }, SONGS.map(s => h("button", { class: "step", onclick: () => s.ladder ? wordLadder() : singAlong(s) },
+      h("span", { class: "ic" }, s.icon), h("span", null, s.name, h("small", null, s.how)))))));
+}
+async function singAlong(song) {
+  const lines = song.lines();
+  let slow = false;
+  const box = h("div", { class: "lyrics" }, lines.map(l => h("div", { class: "line" }, l.map(([, , syl]) => h("span", { class: "syl" }, syl)))));
+  const playBtn = h("button", { class: "big-btn", onclick: () => go() }, "▶ Sing");
+  const slowBtn = h("button", { class: "big-btn blue", onclick: () => { slow = !slow; slowBtn.textContent = slow ? "🐢 Slow" : "🐇 Normal"; } }, "🐇 Normal");
+  const gen = screen("meadow", bar(homeBtn(showSongs), h("h2", { style: "text-align:center;font-size:26px" }, song.name), starChip()),
+    h("div", { class: "stage scroll" }, h("div", { style: "display:flex;gap:12px" }, playBtn, slowBtn), box));
+  async function go() {
+    unlock(); playBtn.disabled = true;
+    const beat = 60 / (song.bpm * (slow ? .7 : 1));
+    for (let li = 0; li < lines.length; li++) {
+      const lineEl = box.children[li];
+      lineEl.classList.add("on");
+      lineEl.scrollIntoView({ block: "center", behavior: "smooth" });
+      for (let si = 0; si < lines[li].length; si++) {
+        if (gen !== screenGen) return;
+        const [m, beats] = lines[li][si], syl = lineEl.children[si];
+        tone(m + 12, AC.currentTime, beats * beat, .14);
+        syl.classList.add("on");
+        await wait(beats * beat * 1000);
+        syl.classList.remove("on");
+      }
+      lineEl.classList.remove("on");
+    }
+    playBtn.disabled = false; addStars(3);
+  }
+}
+async function wordLadder() {
+  const known = wordsUpTo(Math.max(1, S.unlocked)).filter(w => w.t.length <= 5);
+  const pick = shuffle(known).slice(0, 8);
+  while (pick.length < 8 && known.length) pick.push(known[rand(known.length)]);
+  const steps = h("div", { class: "ladder-steps" }, SOLFEGE.slice(0, 8).map((_, i) => h("i", { style: `height:${20 + i * 12}px` })));
+  const word = h("div", { class: "ladder-word" }, "♪");
+  const pic = h("div", { class: "show", style: "min-height:1em" });
+  const playBtn = h("button", { class: "big-btn", onclick: () => go() }, "▶ Climb");
+  const gen = screen("meadow", bar(homeBtn(showSongs), h("h2", { style: "text-align:center;font-size:26px" }, "Mountain Word Ladder"), starChip()),
+    h("div", { class: "stage" }, h("div", { class: "sub" }, "Sing each word on its note. Do, re, mi…"), word, pic, steps, playBtn));
+  async function go() {
+    unlock(); playBtn.disabled = true;
+    const order = [0, 1, 2, 3, 4, 5, 6, 7, 7, 6, 5, 4, 3, 2, 1, 0];
+    for (let k = 0; k < order.length; k++) {
+      if (gen !== screenGen) return;
+      const i = order[k], w = pick[k % 8];
+      [...steps.children].forEach((s, j) => s.classList.toggle("on", j <= i));
+      word.textContent = w.w; pic.textContent = "";
+      tone(SOLFEGE[i], AC.currentTime, 1.2, .15);
+      await wait(1500);
+      if (gen !== screenGen) return;
+      pic.textContent = PIC[w.w] || "";
+      say(wordClip(w.w));
+      await wait(900);
+    }
+    word.textContent = "♪"; yodel(); addStars(3); playBtn.disabled = false;
+  }
+}
+
+/* ---------------- grown-ups ---------------- */
+function showParent() {
+  const n = S.unlocked;
+  const soundGrid = h("div", { class: "grid-sounds" }, soundsUpTo(LEVELS.length).map(s => {
+    const x = S.stats[sKey(s)];
+    const words = wordsUpTo(LEVELS.length).filter(w => w.t.some(t => t.p === s.p)).map(w => S.stats[wKey(w)]).filter(Boolean);
+    const seen = (x ? x.s : 0) + words.reduce((a, w) => a + w.s, 0), right = (x ? x.c : 0) + words.reduce((a, w) => a + w.c, 0);
+    const pct = seen ? Math.round(right / seen * 100) : null;
+    return h("div", { class: "gs " + (pct == null ? "" : pct >= 90 ? "g" : pct >= 70 ? "w" : "b") }, s.g, h("small", null, pct == null ? "–" : pct + "%"));
+  }));
+  const tough = Object.entries(S.stats).filter(([k, v]) => k.startsWith("word:") && v.m > 0).sort((a, b) => b[1].m - a[1].m).slice(0, 12).map(([k]) => k.slice(5));
+  const recent = S.history.slice(-8).reverse().map(r => h("div", null, `${r.d} · Level ${r.n} ${STAGE[r.stage].name}: ${r.good}/${r.of}`));
+  const sel = h("select", { class: "pbtn", id: "lvl-jump", "aria-label": "Jump to level" }, LEVELS.map(l => h("option", { value: l.n, selected: l.n === n ? true : null }, `Level ${l.n}: ${l.title}`)));
+  let armed = false;
+  const resetBtn = h("button", { class: "pbtn danger", onclick: () => {
+    if (!armed) { armed = true; resetBtn.textContent = "Tap again to erase all progress"; return; }
+    S = fresh(); save(); showMap();
+  } }, "Reset progress");
+  screen("meadow", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:26px" }, "For grown-ups"), null),
+    h("div", { class: "stage scroll" }, h("div", { class: "parent" },
+      h("h2", null, "How Letters Are Alive teaches"),
+      h("p", null, "Every level adds a few sounds and only uses words he can decode with sounds already taught. Letters make only their most common sound until Level 14 (Magic E). Each level has steps that must be mastered in order: hear-and-find the new sounds, blend words on the lily pads, spell words, then a mixed mastery check that also pulls review from earlier levels. Each step needs about 90% right on the first try. Missed sounds and words come back more often until they stick."),
+      h("p", null, "Never tell him the word before he chooses. Let him slide the frog and say each sound, then say it fast. If he's stuck, have him slide again more slowly and stretch the sounds. Ten to fifteen minutes a day beats a long session."),
+      h("h3", null, "Sound accuracy"), h("p", null, "Includes words that use each sound. Green is 90% or better, yellow 70–89%, orange below 70%."), soundGrid,
+      h("h3", null, "Words to watch"), h("p", null, tough.length ? tough.join(", ") : "None yet."),
+      h("h3", null, "Recent practice"), h("div", { style: "display:grid;gap:4px;font-variant-numeric:tabular-nums" }, recent.length ? recent : "No sessions yet."),
+      h("h3", null, "Placement"),
+      h("p", null, "If he already knows early sounds, open a later level. Earlier levels stay available for review."),
+      h("div", { class: "prow" }, sel, h("button", { class: "pbtn", onclick: () => { S.unlocked = Math.max(S.unlocked, +sel.value); save(); showLevel(+sel.value); } }, "Open this level")),
+      h("h3", null, "Progress on this device"),
+      h("p", null, "Progress is saved in this browser only. Add the page to the iPad home screen and always open it from there."),
+      h("div", { class: "prow" }, resetBtn))));
+}
+
+/* ---------------- boot ---------------- */
+showMap();
+</script>

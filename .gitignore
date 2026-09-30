@@ -1,0 +1,4 @@
+voice/*.onnx
+voice/*.onnx.json
+.audio-cache.json
+__pycache__/
