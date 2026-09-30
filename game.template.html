@@ -117,6 +117,11 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .frog.hopping { transition: left .28s cubic-bezier(.3,1.6,.5,1); }
 .hint-arrow { position: absolute; bottom: 40px; left: 110px; font-size: 40px; color: var(--snow); animation: nudge 1.2s ease-in-out infinite; }
 @keyframes nudge { 50% { transform: translateX(16px); } }
+.voiceline { position: absolute; left: 12%; right: 6%; bottom: 8px; height: 26px; border-radius: 13px; background: rgba(255,255,255,.25); display: flex; align-items: center; overflow: hidden; }
+.voiceline i { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(254,204,2,.35), var(--sv-yellow)); transform-origin: center; transform: scaleY(.15); transition: transform .06s; }
+.voiceline.on i { background: linear-gradient(90deg, #fff6b3, var(--sv-yellow)); }
+.micbtn { width: 110px; height: 110px; border-radius: 50%; font-size: 56px; background: var(--paper); border: 6px solid var(--sv-blue); box-shadow: 0 7px 0 rgba(0,0,0,.12); }
+.micbtn.listening { background: #fff3c4; border-color: var(--falu); animation: bob .8s ease-in-out infinite; }
 .choices { display: flex; gap: clamp(12px, 3vw, 28px); flex-wrap: wrap; justify-content: center; }
 .pic { width: clamp(118px, 22vw, 176px); aspect-ratio: 1; max-width: 100%; border-radius: 28px; background: var(--paper); border: 5px solid var(--paper-edge);
   font-size: clamp(64px, 12vw, 104px); display: grid; place-items: center; box-shadow: 0 7px 0 rgba(0,0,0,.1); }
@@ -472,6 +477,7 @@ let screenGen = 0;
 function screen(variant, ...kids) {
   screenGen++;
   hush();
+  Mic.stop();
   app.innerHTML = scenery(variant);
   app.append(...kids);
   return screenGen;
@@ -651,6 +657,74 @@ function showResult(n, stage, stageIndex, good, total, pass, levelUp) {
   say(levelUp ? ["q_levelup", 300, "a_" + (n - 1)] : pass ? ["q_passed"] : ["q_almost"]);
 }
 
+/* ---------------- microphone ---------------- */
+/* Two optional helpers, switched on in the grown-ups corner:
+   voice line: while he slides the frog and says the sounds, his voice level is watched; if it
+               drops out for too long between sounds, the frog splashes back ("keep your voice on").
+   word check: after sliding he taps the mic and says the word fast; the browser's speech
+               recognizer shows what it heard. It never marks him wrong, because recognizers
+               are unreliable with young children's voices. */
+const Mic = {
+  stream: null, analyser: null, buf: null, floor: .004,
+  supported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && window.isSecureContext !== false; },
+  recognizer() { return window.SpeechRecognition || window.webkitSpeechRecognition || null; },
+  async start() {
+    if (this.analyser) return true;
+    if (!this.supported()) return false;
+    try {
+      unlock();
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true } });
+      const src = AC.createMediaStreamSource(this.stream);
+      this.analyser = AC.createAnalyser();
+      this.analyser.fftSize = 1024;
+      src.connect(this.analyser);
+      this.buf = new Float32Array(1024);
+      return true;
+    } catch { this.stop(); return false; }
+  },
+  stop() {
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    this.stream = null; this.analyser = null;
+  },
+  level() {
+    if (!this.analyser) return 0;
+    this.analyser.getFloatTimeDomainData(this.buf);
+    let sum = 0;
+    for (const v of this.buf) sum += v * v;
+    return Math.sqrt(sum / this.buf.length);
+  },
+  async calibrate(ms = 400) {
+    const m = [], end = performance.now() + ms;
+    while (performance.now() < end) { m.push(this.level()); await wait(25); }
+    m.sort((a, b) => a - b);
+    this.floor = m[Math.floor(m.length / 2)] || .004;
+  },
+  threshold() { return Math.min(.08, Math.max(.012, this.floor * 3)); },
+};
+const micMode = () => S.mic || "off";
+
+const SOUNDS_ALIKE = { sun: ["son"], bee: ["be", "b"], nine: ["9"], five: ["5"], six: ["6"], ten: ["10"], tee: ["t"], see: ["sea", "c"],
+  pea: ["p"], jet: ["jett"], cub: ["cubbie"], mom: ["mum", "mam"], dad: ["dead"], red: ["read"], ant: ["aunt"] };
+function heardIt(target, alts) {
+  const ok = new Set([target, ...(SOUNDS_ALIKE[target] || [])]);
+  return alts.some(a => a.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).some(w => ok.has(w)));
+}
+function listenFor(ms = 4000) {
+  return new Promise(res => {
+    const SR = Mic.recognizer();
+    if (!SR) return res(null);
+    let done = false;
+    const r = new SR();
+    r.lang = "en-US"; r.interimResults = false; r.maxAlternatives = 5; r.continuous = false;
+    const finish = v => { if (done) return; done = true; try { r.abort(); } catch {} res(v); };
+    r.onresult = e => finish([...e.results[0]].map(a => a.transcript));
+    r.onerror = e => finish(e.error === "not-allowed" || e.error === "audio-capture" ? null : []);
+    r.onend = () => finish([]);
+    try { r.start(); } catch { finish(null); }
+    setTimeout(() => finish([]), ms);
+  });
+}
+
 /* ---------------- finger sliding ---------------- */
 /* One finger drags a handle left to right under the targets, which light up strictly in order.
    Only the first finger that grabs the handle counts; a palm or a second finger anywhere else is
@@ -690,6 +764,9 @@ function slideAcross(host, handle, targets, onReach, onGrab, onRelease) {
   requestAnimationFrame(() => setX(10));
   return {
     reset() { visited = 0; done = false; pid = null; targets.forEach(t => t.classList.remove("lit")); handle.classList.add("hopping"); setX(10); },
+    dragging: () => pid !== null,
+    visited: () => visited,
+    done: () => done,
   };
 }
 
@@ -757,20 +834,66 @@ const ACTIVITIES = {
       const frog = h("div", { class: "frog", role: "button", "aria-label": "Frog: drag across or tap to hop" }, "🐸");
       const arrow = h("div", { class: "hint-arrow" }, "➜");
       const below = h("div", { class: "choices", style: "min-height:40px" });
-      pond.append(padRow, frog, arrow);
-      area.replaceChildren(silent ? h("div", { class: "bubble" }, "🤫 Read it yourself! Slide and say each sound.") : "", pond, below);
-      let busy = false;
+      const voiceLine = h("div", { class: "voiceline", hidden: true }, h("i"));
+      pond.append(padRow, voiceLine, frog, arrow);
+      const tip = h("div", { class: "bubble", hidden: !silent }, "🤫 Read it yourself! Slide and say each sound.");
+      area.replaceChildren(tip, pond, below);
+      let busy = false, voice = false, gapMs = 700, quietUntil = 0, lastVoice = 0, watching = false;
       const slide = slideAcross(pond, frog, pads, (i, last, dragging) => {
         const t = word.t[i];
-        if (silent) note(i);
+        if (i === 0) lastVoice = performance.now() + 600;  // time to start saying the first sound
+        if (voice) { if (!t.p) { note(7); quietUntil = performance.now() + 300; } }
+        else if (silent) note(i);
         else if (t.p) holdSound(t.p, dragging && !last);
         else note(7);
         if (last) finish();
       }, () => { arrow.hidden = true; });
-      function reset() { busy = false; slide.reset(); arrow.hidden = false; below.replaceChildren(); }
+      function reset() { busy = false; slide.reset(); arrow.hidden = false; below.replaceChildren(); frog.textContent = "🐸"; }
+
+      // voice line: he says the sounds himself while sliding; the frog splashes back if his voice drops out
+      (async () => {
+        if (micMode() === "off" || !(await Mic.start()) || gen !== screenGen) {
+          if (micMode() !== "off") { tip.textContent = "🎤 The microphone isn't available here, so the frog will say the sounds."; tip.hidden = false; }
+          return;
+        }
+        voice = true;
+        voiceLine.hidden = false;
+        tip.textContent = "🎤 Slide the frog and say each sound. Keep your voice on!";
+        tip.hidden = false;
+        await Mic.calibrate();
+        watching = true;
+        watch();
+      })();
+      async function voiceDropped() {
+        watching = false;
+        frog.textContent = "💦"; bonk();
+        gapMs = Math.min(1400, gapMs + 150);  // be a little more patient after each splash
+        await say("q_voiceon");
+        if (gen !== screenGen) return;
+        reset();
+        lastVoice = performance.now() + 600;
+        watching = true;
+        watch();
+      }
+      function watch() {
+        const bar = voiceLine.firstChild;
+        const tick = () => {
+          if (!watching || gen !== screenGen) return;
+          const lvl = Mic.level(), on = lvl > Mic.threshold(), now = performance.now();
+          if (on) lastVoice = Math.max(lastVoice, now);
+          bar.style.transform = `scaleY(${Math.min(1, .15 + lvl / (Mic.threshold() * 3))})`;
+          voiceLine.classList.toggle("on", on);
+          if (slide.dragging() && slide.visited() > 0 && !slide.done() && now > quietUntil && now - lastVoice > gapMs) voiceDropped();
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
 
       async function finish() {
         await wait(650);
+        if (gen !== screenGen) return;
+        watching = false;
+        if (voice && micMode() === "word" && Mic.recognizer()) await wordCheck();
         if (gen !== screenGen) return;
         const picture = PIC[word.w];
         if (!picture) return sayItCheck();
@@ -795,6 +918,35 @@ const ACTIVITIES = {
           if (gen === screenGen) resolve(first);
         } }, PIC[w.w])));
         say("q_fast");
+      }
+      // tap the mic, say it fast; show what the recognizer heard (never counted against him)
+      function wordCheck() {
+        return new Promise(done => {
+          const heard = h("div", { class: "bubble", hidden: true });
+          const mic = h("button", { class: "micbtn pop", "aria-label": "Tap and say it fast" }, "🎤");
+          const skip = h("button", { class: "pbtn", onclick: () => done() }, "Skip");
+          mic.addEventListener("click", async () => {
+            if (mic.classList.contains("listening")) return;
+            Mic.stop();  // hand the microphone to the speech recognizer
+            mic.classList.add("listening");
+            const alts = await listenFor(4000);
+            mic.classList.remove("listening");
+            if (gen !== screenGen) return;
+            heard.hidden = false;
+            if (alts === null) { heard.textContent = "🎤 Speech checking isn't available on this device."; await wait(1200); return done(); }
+            if (alts.length && heardIt(word.w, alts)) {
+              heard.textContent = `🎤 I heard "${word.w}"!`; arpeggio(); confetti(10, ["🎤", "⭐", "🎵"]);
+              await say("q_heard");
+              return done();
+            }
+            heard.textContent = alts.length ? `🎤 I heard "${alts[0].trim()}". Let's find the picture.` : "🎤 I didn't catch that. Let's find the picture.";
+            await wait(1500);
+            done();
+          });
+          below.replaceChildren(h("div", { style: "display:flex;flex-direction:column;align-items:center;gap:10px" },
+            h("div", { class: "bubble" }, "Tap the mic and say it fast!"), mic, heard, skip));
+          say("q_sayfast");
+        }).then(() => Mic.start());
       }
       function sayItCheck() {
         const bell = h("button", { class: "big-btn pop", onclick: async () => {
@@ -1004,6 +1156,33 @@ async function wordLadder() {
 }
 
 /* ---------------- grown-ups ---------------- */
+function micTester() {
+  const status = h("p", null, !Mic.supported() ? "This page can't use the microphone. Open the game from its own https address." :
+    `Microphone: available. Speech checking: ${Mic.recognizer() ? "available" : "not available in this browser"}.`);
+  const meter = h("div", { class: "voiceline", style: "position:relative;left:0;right:0;width:100%;max-width:420px" }, h("i"));
+  const out = h("p", null, "");
+  let running = false;
+  const test = h("button", { class: "pbtn", onclick: async () => {
+    if (running) return;
+    if (!(await Mic.start())) { out.textContent = "The microphone was blocked. Check the browser's microphone permission for this site."; return; }
+    running = true; test.textContent = "Listening… say mmmaaat"; await Mic.calibrate(300);
+    const stopAt = performance.now() + 6000;
+    const tick = () => {
+      const lvl = Mic.level();
+      meter.firstChild.style.transform = `scaleY(${Math.min(1, .15 + lvl / (Mic.threshold() * 3))})`;
+      meter.classList.toggle("on", lvl > Mic.threshold());
+      if (performance.now() < stopAt && document.contains(meter)) requestAnimationFrame(tick);
+      else { running = false; test.textContent = "Test voice line"; Mic.stop(); }
+    };
+    requestAnimationFrame(tick);
+  } }, "Test voice line");
+  const testWord = h("button", { class: "pbtn", onclick: async () => {
+    Mic.stop(); out.textContent = "Say a word now…";
+    const alts = await listenFor(5000);
+    out.textContent = alts === null ? "Speech checking isn't available here." : alts.length ? "Heard: " + alts.map(a => `"${a.trim()}"`).join(", ") : "Didn't hear a word.";
+  } }, "Test word check");
+  return h("div", { style: "display:grid;gap:8px" }, status, h("div", { class: "prow" }, test, testWord), meter, out);
+}
 function showParent() {
   const n = S.unlocked;
   const soundGrid = h("div", { class: "grid-sounds" }, soundsUpTo(LEVELS.length).map(s => {
@@ -1032,6 +1211,11 @@ function showParent() {
       h("h3", null, "Placement"),
       h("p", null, "If he already knows early sounds, open a later level. Earlier levels stay available for review."),
       h("div", { class: "prow" }, sel, h("button", { class: "pbtn", onclick: () => { S.unlocked = Math.max(S.unlocked, +sel.value); save(); showLevel(+sel.value); } }, "Open this level")),
+      h("h3", null, "Microphone practice"),
+      h("p", null, "Voice line: in Lily Pad Hop he says the sounds himself while sliding the frog, and the pads stay quiet. If his voice drops out between sounds, the frog splashes back so he learns to keep his voice on (mmmaaat, not m… a… t). Word check adds a tap-and-say-it-fast step after each slide. The speech recognizer is shown for encouragement only and never marks him wrong. Needs the game opened from its own web address (https), not the claude.ai preview."),
+      h("div", { class: "prow" }, [["off", "Off"], ["voice", "Voice line"], ["word", "Voice line + word check"]].map(([k, label]) =>
+        h("button", { class: "pbtn", style: micMode() === k ? "border-color:var(--sv-blue);background:#e3eefb" : "", onclick: () => { S.mic = k; save(); showParent(); } }, (micMode() === k ? "● " : "") + label))),
+      micTester(),
       h("h3", null, "Developer mode"),
       h("p", null, S.dev ? "On: every level and step is open, whether or not it has been mastered." : "Off: levels and steps unlock only through mastery."),
       h("div", { class: "prow" }, h("button", { class: "pbtn", onclick: () => { S.dev = !S.dev; save(); showParent(); } }, S.dev ? "Turn off (strict mastery)" : "Turn on (open everything)")),

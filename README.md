@@ -4,8 +4,8 @@ A phonics game for learning to blend letter sounds. It's set in an Alpine valley
 
 ## Play it
 
-- **On the iPad:** open `play.html` in Safari, then Share → *Add to Home Screen*. The whole game is one offline file with all the audio built in. Progress is saved in that browser.
-- **On a computer:** open `play.html` in any browser.
+- **Hosted (needed for the microphone):** serve `index.html` over https, e.g. GitHub Pages (Settings → Pages → deploy from `main`, root) or Netlify, then on the iPad open it in Safari and Share → *Add to Home Screen*.
+- **On a computer:** open `index.html` in any browser. The whole game is one offline file with all the audio built in. Progress is saved in that browser.
 - **Tip:** turn on iPad *Guided Access* (Settings → Accessibility) so he can't leave the app.
 
 ## How it teaches
@@ -32,6 +32,13 @@ The design principles are in [`docs/TENETS.md`](docs/TENETS.md). In short:
   - "Mountain Word Ladder": he reads a word on each note of the do-re-mi scale, up and down the mountain
 - **Five-in-a-row combos** play a yodel and confetti.
 
+## Microphone practice (optional)
+
+Turn it on in the grown-ups corner. It needs the game opened from an https address, not the claude.ai preview.
+
+- **Voice line:** in Lily Pad Hop the pads stay quiet and he says the sounds himself while sliding the frog. A live voice line shows his voice. If it drops out between sounds for too long, the frog splashes back and he tries again ("keep your voice on": *mmmaaat*, not *m… a… t*). The game gets a little more patient after each splash, and a splash never counts as a miss.
+- **Word check:** after the slide he taps 🎤 and says the word fast. The browser's speech recognizer shows what it heard. It is encouragement only and never marks him wrong.
+
 ## Grown-ups corner
 
 Press and hold ⚙️ on the map for 1.5 seconds. It shows accuracy for each sound, the words to watch, recent sessions, level placement, and a reset.
@@ -42,7 +49,7 @@ Press and hold ⚙️ on the map for 1.5 seconds. It shows accuracy for each sou
 pip install piper-tts lameenc numpy
 # voice model (not committed; ~60 MB):
 curl -L https://github.com/rhasspy/piper/releases/download/v0.0.2/voice-en-us-lessac-medium.tar.gz | tar xz -C voice
-python3 build.py   # writes index.html (for hosting as an artifact) and play.html (standalone)
+python3 build.py   # writes index.html (the game) and artifact.html (for a claude.ai preview)
 ```
 
 The curriculum (levels, words, pictures, sentences, animals) lives at the top of `build.py`. The game code and art live in `game.template.html`. Letter sounds are made with the [Piper](https://github.com/rhasspy/piper) neural voice from IPA phonemes, so a sound like /b/ is a clipped /b/ and not "bee" or "buh". Continuous sounds are stretched so they can be held while blending. The Lessac voice's dataset is licensed for non-commercial use, which covers family use.

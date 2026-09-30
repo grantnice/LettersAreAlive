@@ -1,7 +1,7 @@
 """Build Blend Farm: generate voice clips with Piper and bake everything into one HTML file.
 
     pip install piper-tts lameenc numpy
-    python3 build.py            # writes index.html (artifact) and play.html (open locally / iPad)
+    python3 build.py            # writes index.html (the game; host it or open it directly) and artifact.html
 
 The curriculum lives in CURRICULUM below. Rules it follows:
   * Letters make only their most common sound until level 14 (no s=/z/, no schwa "a"/"the").
@@ -149,6 +149,9 @@ PAIRS = [("dog", "fish"), ("cow", "bee"), ("frog", "tree"), ("sun", "hat"), ("ca
          ("duck", "egg"), ("sheep", "moon"), ("fox", "box"), ("goat", "star"), ("bus", "sock"), ("hen", "nest")]
 
 PROMPTS = {
+    "voiceon": "Keep your voice on! Let's try again.",
+    "sayfast": "Tap the microphone and say it fast!",
+    "heard": "I heard you! Great reading!",
     "listen2": "Listen. Which one did you hear?",
     "find": "Find the egg that says",
     "hop": "Slide the frog across. Say each sound.",
@@ -376,11 +379,11 @@ def main():
     page = (ROOT / "game.template.html").read_text()
     page = page.replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False))
     page = page.replace("/*__AUDIO__*/null", json.dumps(audio))
-    (ROOT / "index.html").write_text(page)
+    (ROOT / "artifact.html").write_text(page)
     head = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">'
             '<meta name="apple-mobile-web-app-capable" content="yes"></head><body>')
-    (ROOT / "play.html").write_text(head + page + "</body></html>")
+    (ROOT / "index.html").write_text(head + page + "</body></html>")
     words = sum(len(l["words"]) for l in data["levels"])
     print(f"{len(data['levels'])} levels, {words} words, {len(audio)} clips, "
           f"{len(page) / 1e6:.1f} MB page")
