@@ -262,13 +262,47 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {}
 let AC = null;
 const BUF = {};
 let voiceSrc = null, speechGen = 0;
+/* iPhone and iPad quirks:
+   1. Web audio starts only from certain gestures (touchend/click, not always pointerdown),
+      so unlock on all of them and play a silent blip to wake the audio hardware.
+   2. The mute switch / silent mode silences web audio. Marking the page's audio session as
+      "playback" (iOS 17+) and keeping a silent <audio> element playing (older iOS) makes the
+      game audible in silent mode, like a video would be. */
+let keepAlive = null;
+function silentWavUrl() {
+  const n = 8000, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 16000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, "data"); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch {} }
 function unlock() {
   try {
-    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
-    if (AC.state === "suspended") AC.resume();
+    if (!AC) {
+      setSession("playback");
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (AC.state !== "running") AC.resume();
+    if (!unlock.blipped) {
+      const b = AC.createBuffer(1, 1, 22050), src = AC.createBufferSource();
+      src.buffer = b; src.connect(AC.destination); src.start(0);
+      unlock.blipped = true;
+    }
+    if (!keepAlive) {
+      keepAlive = new Audio(silentWavUrl());
+      keepAlive.loop = true;
+      keepAlive.setAttribute("playsinline", "");
+    }
+    if (keepAlive.paused && !document.hidden) keepAlive.play().catch(() => {});
   } catch {}
 }
-document.addEventListener("pointerdown", unlock, { capture: true });
+["pointerdown", "touchend", "click", "keydown"].forEach(e => document.addEventListener(e, unlock, { capture: true }));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { keepAlive && keepAlive.pause(); }
+  else if (AC) { AC.resume(); keepAlive && keepAlive.play().catch(() => {}); }
+});
 async function getBuf(name) {
   if (BUF[name]) return BUF[name];
   const b64 = AUDIO[name];
@@ -676,6 +710,7 @@ const Mic = {
     if (!this.supported()) return false;
     try {
       unlock();
+      setSession("play-and-record");
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true } });
       const src = AC.createMediaStreamSource(this.stream);
       this.analyser = AC.createAnalyser();
@@ -686,7 +721,7 @@ const Mic = {
     } catch { this.stop(); return false; }
   },
   stop() {
-    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); setSession("playback"); }
     this.stream = null; this.analyser = null;
   },
   level() {
