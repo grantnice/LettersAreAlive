@@ -102,7 +102,7 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .egg.cracked { background: radial-gradient(circle at 35% 30%, #fffbe0, #ffe27a); border-color: var(--sv-yellow); }
 
 /* ---- pond hop ---- */
-.pond { position: relative; width: min(960px, 100%); padding: 110px 16px 36px; border-radius: 48% 52% 40% 44% / 30% 30% 22% 22%;
+.pond { position: relative; width: min(960px, 100%); padding: 36px 16px 120px; border-radius: 48% 52% 40% 44% / 30% 30% 22% 22%;
   background: radial-gradient(ellipse at 50% 40%, #7cc7d9, var(--pond) 55%, var(--pond-dk)); border: 6px solid #8bc47a; }
 .pads { display: flex; justify-content: center; gap: clamp(6px, 1.6vw, 18px); padding-left: clamp(40px, 8vw, 90px); }
 .pad { position: relative; width: clamp(64px, 14vw, 132px); aspect-ratio: 1; max-width: 100%; border-radius: 50%;
@@ -112,10 +112,10 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .pad.lit { background: radial-gradient(circle at 40% 35%, #fff6b3, var(--sv-yellow) 75%); border-color: #c99d00; transform: scale(1.06); }
 .pad.silent { color: rgba(31,45,61,.35); }
 .pad.silent.lit { color: var(--sv-blue); }
-.frog { position: absolute; top: 18px; left: 10px; font-size: clamp(64px, 10vw, 92px); line-height: 1; touch-action: none; cursor: grab;
+.frog { position: absolute; bottom: 16px; left: 10px; font-size: clamp(64px, 10vw, 92px); line-height: 1; touch-action: none; cursor: grab;
   filter: drop-shadow(0 6px 0 rgba(0,0,0,.18)); z-index: 3; }
 .frog.hopping { transition: left .28s cubic-bezier(.3,1.6,.5,1); }
-.hint-arrow { position: absolute; top: 44px; left: 110px; font-size: 40px; color: var(--snow); animation: nudge 1.2s ease-in-out infinite; }
+.hint-arrow { position: absolute; bottom: 40px; left: 110px; font-size: 40px; color: var(--snow); animation: nudge 1.2s ease-in-out infinite; }
 @keyframes nudge { 50% { transform: translateX(16px); } }
 .choices { display: flex; gap: clamp(12px, 3vw, 28px); flex-wrap: wrap; justify-content: center; }
 .pic { width: clamp(118px, 22vw, 176px); aspect-ratio: 1; max-width: 100%; border-radius: 28px; background: var(--paper); border: 5px solid var(--paper-edge);
@@ -140,7 +140,7 @@ h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.05; }
 .sentence { display: flex; gap: 10px 16px; flex-wrap: wrap; justify-content: center; max-width: 860px; }
 .readtrack { position: relative; padding-bottom: 96px; max-width: 100%; }
 .readtrack .sentence { flex-wrap: nowrap; white-space: nowrap; }
-.frog.reader { top: auto; bottom: 0; font-size: clamp(52px, 8vw, 72px); }
+.frog.reader { bottom: 0; font-size: clamp(52px, 8vw, 72px); }
 .sw.lit { background: var(--sv-yellow); }
 .sw { font-family: var(--font-read); font-weight: 700; font-size: clamp(22px, 5.2vw, 56px); padding: 2px 10px; border-radius: 14px; background: rgba(255,251,242,.9); }
 .sw.heart { color: var(--falu); }
@@ -207,7 +207,7 @@ select.pbtn { font-size: 16px; }
 @media (max-width: 560px) {
   .round { width: 48px; height: 48px; font-size: 24px; }
   .chip { font-size: 18px; padding: 2px 10px; }
-  .pond { padding-top: 96px; }
+  .pond { padding-bottom: 100px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -243,7 +243,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 /* ---------------- saved progress ---------------- */
 const KEY = "lettersarealive.v1";
-const fresh = () => ({ unlocked: 1, passed: {}, stars: 0, animals: [], items: [], stats: {}, days: [], history: [] });
+const fresh = () => ({ dev: true, unlocked: 1, passed: {}, stars: 0, animals: [], items: [], stats: {}, days: [], history: [] });
 let S;
 try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch { S = fresh(); }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
@@ -293,8 +293,7 @@ async function say(...names) {
   }
   return g === speechGen;
 }
-/* "keep your voice on": while a finger rests on a pad, a continuous sound (mmm, sss, aaa) keeps
-   sounding, then flows straight into the next pad's sound */
+/* each pad's sound flows straight into the next one: reaching a pad cuts the previous sound with a short fade */
 const CONTINUOUS = new Set(DATA.continuous);
 let holdSrc = null, holdGain = null;
 async function holdSound(p, sustain) {
@@ -305,11 +304,9 @@ async function holdSound(p, sustain) {
   stopHold();
   const src = AC.createBufferSource(), g = AC.createGain();
   src.buffer = b;
-  if (sustain && CONTINUOUS.has(p)) { src.loop = true; src.loopStart = b.duration * .35; src.loopEnd = b.duration * .7; }
   src.connect(g).connect(AC.destination);
   src.start();
   holdSrc = src; holdGain = g;
-  if (src.loop) setTimeout(() => { if (holdSrc === src) stopHold(); }, 3000);
 }
 function stopHold() {
   if (!holdSrc || !AC) return;
@@ -510,7 +507,7 @@ function streakDays() {
 function showMap() {
   const map = h("div", { class: "map" });
   LEVELS.forEach((lv, i) => {
-    const n = lv.n, done = S.animals.includes(i), cur = n === S.unlocked && !done, locked = n > S.unlocked;
+    const n = lv.n, done = S.animals.includes(i), cur = n === S.unlocked && !done, locked = !S.dev && n > S.unlocked;
     const offset = Math.round((Math.sin(i * 1.1) * .5 + .5) * 55);
     const node = h("button", {
       class: "node " + (done ? "done" : cur ? "current" : locked ? "locked" : ""), style: `margin-left:${offset}%;`,
@@ -525,11 +522,12 @@ function showMap() {
   trail.setAttribute("class", "trail");
   map.prepend(trail);
   const streak = streakDays();
+  const devTag = S.dev ? h("span", { class: "chip", style: "font-size:15px" }, "🛠️ All levels open") : null;
   screen("map",
     bar(h("button", { class: "round", "aria-label": "My farm", onclick: showFarm }, "🛖"),
       h("div", { style: "display:flex;gap:10px;justify-content:center;flex-wrap:wrap" },
         h("button", { class: "chip", onclick: showSongs }, "🎵 Songs"),
-        streak ? h("span", { class: "chip" }, "☀️ " + streak + (streak === 1 ? " day" : " days")) : null),
+        streak ? h("span", { class: "chip" }, "☀️ " + streak + (streak === 1 ? " day" : " days")) : null, devTag),
       h("div", { style: "display:flex;gap:10px;align-items:center" }, starChip(), parentGear())),
     h("div", { class: "stage scroll", id: "mapscroll" },
       h("h1", { class: "title" }, "Letters Are Alive"),
@@ -572,7 +570,7 @@ function showLevel(n) {
       h("div", { class: "tiles" }, lv.words.slice(0, 4).map(w => h("span", { class: "tile small" }, w.w))));
   }
   card.append(h("div", { class: "steps" }, stages.map((stg, i) => {
-    const info = STAGE[stg], isPassed = i < passed, isNext = i === passed && !done, locked = i > passed && !done;
+    const info = STAGE[stg], isPassed = i < passed, isNext = i === passed && !done, locked = !S.dev && i > passed && !done;
     return h("button", { class: "step" + (isPassed ? " passed" : "") + (isNext ? " next" : ""), disabled: locked,
       onclick: () => runStage(n, stg, i) },
       h("span", { class: "ic" }, locked ? "🔒" : info.icon),
@@ -768,7 +766,7 @@ const ACTIVITIES = {
         else if (t.p) holdSound(t.p, dragging && !last);
         else note(7);
         if (last) finish();
-      }, () => { arrow.hidden = true; }, () => { if (holdSrc && holdSrc.loop) stopHold(); });
+      }, () => { arrow.hidden = true; });
       function reset() { busy = false; slide.reset(); arrow.hidden = false; below.replaceChildren(); }
 
       async function finish() {
@@ -1034,6 +1032,9 @@ function showParent() {
       h("h3", null, "Placement"),
       h("p", null, "If he already knows early sounds, open a later level. Earlier levels stay available for review."),
       h("div", { class: "prow" }, sel, h("button", { class: "pbtn", onclick: () => { S.unlocked = Math.max(S.unlocked, +sel.value); save(); showLevel(+sel.value); } }, "Open this level")),
+      h("h3", null, "Developer mode"),
+      h("p", null, S.dev ? "On: every level and step is open, whether or not it has been mastered." : "Off: levels and steps unlock only through mastery."),
+      h("div", { class: "prow" }, h("button", { class: "pbtn", onclick: () => { S.dev = !S.dev; save(); showParent(); } }, S.dev ? "Turn off (strict mastery)" : "Turn on (open everything)")),
       h("h3", null, "Progress on this device"),
       h("p", null, "Progress is saved in this browser only. Add the page to the iPad home screen and always open it from there."),
       h("div", { class: "prow" }, resetBtn))));

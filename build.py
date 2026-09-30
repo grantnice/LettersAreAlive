@@ -23,7 +23,9 @@ ROOT = Path(__file__).parent
 PHONEMES = {
     "m": "mː", "s": "sː", "f": "fː", "n": "nː", "l": "lː", "r": "ɹː",
     "v": "vː", "z": "zː", "sh": "ʃː", "th": "θː",
-    "a": "æː", "e": "ɛː", "i": "ɪː", "o": "ɑː", "u": "ʌː",
+    # short vowels are cut from real words ("at" -> the /a/ before the t); isolated vowels from the
+    # TTS all blur into the same nasal murmur
+    "a": "from:add", "e": "from:egg", "i": "from:if", "o": "from:odd", "u": "from:up",
     "b": "bə", "k": "kə", "d": "də", "g": "ɡə", "h": "hə", "j": "dʒə", "p": "pə", "t": "tə",
     "w": "wə", "y": "jə", "ch": "tʃə", "x": "ks", "qu": "kwə",
     "A": "eɪ", "E": "iː", "I": "aɪ", "O": "oʊ", "U": "juː",
@@ -223,7 +225,8 @@ def build_data():
 
 def clips(data):
     """name -> (text, kind) where kind is hold, stop or word"""
-    out = {f"p_{k}": (f"[[{ipa}]]", "hold" if k in CONTINUOUS else "stop") for k, ipa in PHONEMES.items()}
+    out = {f"p_{k}": (ipa if ipa.startswith("from:") else f"[[{ipa}]]", "hold" if k in CONTINUOUS else "stop")
+           for k, ipa in PHONEMES.items()}
     words = {w["w"] for lv in data["levels"] for w in lv["words"]}
     for s in SENTENCES:
         words |= set(s[0].lower().split())
@@ -239,27 +242,91 @@ def clips(data):
     return out
 
 
-def stretch(x, rate, seconds):
-    """Lengthen a steady sound (mmm, sss, aaa) by looping its middle with crossfades."""
-    xf = int(rate * 0.03)
-    mid = x[len(x) * 3 // 10: len(x) * 7 // 10]
-    if len(mid) < xf * 3:
+def wsola(x, factor, rate):
+    """Time-stretch without changing pitch (waveform-similarity overlap-add).
+    Each output frame is taken from wherever the input best continues the previous
+    frame, so a held vowel or hum stays smooth instead of stuttering."""
+    n = int(rate * 0.03)
+    hop = n // 2
+    tol = int(rate * 0.01)
+    win = np.hanning(n)
+    usable = len(x) - n - tol
+    if usable < n:
         return x
-    head, tail = x[: len(x) * 3 // 10], x[len(x) * 7 // 10:]
-    out = np.concatenate([head, mid])
-    ramp = np.linspace(0, 1, xf)
-    while len(out) + len(tail) < seconds * rate:
-        out[-xf:] = out[-xf:] * (1 - ramp) + mid[:xf] * ramp
-        out = np.concatenate([out, mid[xf:]])
-    out[-xf:] = out[-xf:] * (1 - ramp) + tail[:xf] * ramp if len(tail) >= xf else out[-xf:]
-    return np.concatenate([out, tail[xf:]])
+    factor = factor * len(x) / usable
+    out_len = int(len(x) * factor)
+    y = np.zeros(out_len + n)
+    wsum = np.zeros(out_len + n)
+    prev, k = 0, 0
+    while True:
+        out_pos = k * hop
+        ideal = int(k * hop / factor)
+        if out_pos + n > len(y) or ideal + n + tol >= len(x) or prev + hop + n > len(x):
+            break
+        if k == 0:
+            pos = 0
+        else:
+            natural = x[prev + hop: prev + hop + n]
+            lo, hi = max(0, ideal - tol), min(len(x) - n, ideal + tol)
+            scores = [np.dot(natural, x[p: p + n]) for p in range(lo, hi + 1)]
+            pos = lo + int(np.argmax(scores))
+        y[out_pos: out_pos + n] += x[pos: pos + n] * win
+        wsum[out_pos: out_pos + n] += win
+        prev, k = pos, k + 1
+    wsum[wsum < 1e-3] = 1
+    return (y / wsum)[: k * hop + hop]
+
+
+def steady_part(x, rate):
+    """Keep the strong, steady body of a sound. Isolated vowels from the TTS fade into a
+    nasal murmur at the end (it sounds like "n"), so everything after the level drops is cut."""
+    frame = int(rate * 0.01)
+    rms = np.array([np.sqrt((x[i: i + frame] ** 2).mean()) for i in range(0, len(x) - frame, frame)])
+    if len(rms) < 5:
+        return x
+    rms = np.convolve(rms, np.ones(5) / 5, "same")  # smooth so noisy sounds like /s/ aren't cut short
+    keep = np.where(rms >= rms.max() * 0.5)[0]
+    start, end = keep[0], keep[-1]
+    # stop at the first real drop after the peak so the murmur tail never sneaks back in
+    peak = int(np.argmax(rms))
+    for i in range(peak, end + 1):
+        if rms[i] < rms.max() * 0.5:
+            end = i - 1
+            break
+    return x[start * frame: (end + 1) * frame]
+
+
+def vowel_from_word(voice, word):
+    """Speak a vowel-first word like "at" and keep only the vowel, up to the consonant closure."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        voice.synthesize_wav(word, w, syn_config=SynthesisConfig(length_scale=1.5))
+    buf.seek(0)
+    with wave.open(buf) as w:
+        rate = w.getframerate()
+        x = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(float)
+    frame = int(rate * 0.01)
+    rms = np.array([np.sqrt((x[i: i + frame] ** 2).mean()) for i in range(0, len(x) - frame, frame)])
+    loud = rms >= rms.max() * 0.3
+    start = int(np.argmax(loud))
+    end = start
+    while end + 1 < len(rms) and rms[end + 1] >= rms.max() * 0.2:
+        end += 1
+    end = max(start + 5, end - 3)  # leave out the slide into the consonant
+    return x[start * frame: end * frame], rate
 
 
 def synth(voice, text, kind):
     is_phoneme = kind in ("hold", "stop")
+    if text.startswith("from:"):
+        x, rate = vowel_from_word(voice, text[5:])
+        body = steady_part(x, rate)
+        fade_in = min(len(body) // 6, int(rate * 0.012))
+        body[:fade_in] *= np.linspace(0, 1, fade_in)
+        return encode(wsola(body, max(1.0, HOLD_SECONDS * rate / len(body)), rate), rate)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
-        voice.synthesize_wav(text, w, syn_config=SynthesisConfig(length_scale=2.0 if kind == "hold" else 1.1))
+        voice.synthesize_wav(text, w, syn_config=SynthesisConfig(length_scale=1.6 if kind == "hold" else 1.1))
     buf.seek(0)
     with wave.open(buf) as w:
         rate = w.getframerate()
@@ -271,7 +338,15 @@ def synth(voice, text, kind):
         x = x[max(0, loud[0] - 330): loud[-1] + 660]
     x = x.astype(float)
     if kind == "hold":
-        x = stretch(x, rate, HOLD_SECONDS)
+        body = steady_part(x, rate)
+        fade_in = min(len(body) // 6, int(rate * 0.015))
+        body[:fade_in] *= np.linspace(0, 1, fade_in)
+        x = wsola(body, max(1.0, HOLD_SECONDS * rate / len(body)), rate)
+    return encode(x, rate)
+
+
+def encode(x, rate):
+    x = x.astype(float)
     fade = min(330, len(x) // 4)
     x[-fade:] *= np.linspace(1, 0, fade)
     enc = lameenc.Encoder()
