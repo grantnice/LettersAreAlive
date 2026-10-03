@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Toy animals</title>
+<style>html,body{margin:0;height:100%;background:#cfe0f2;overflow:hidden;font-family:system-ui,sans-serif}#c{width:100%;height:100%;display:block}#ui{position:fixed;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}#ui button{border:0;border-radius:10px;padding:6px 10px;background:#fffc}body.hideui #ui{display:none}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+  "meshoptimizer/": "https://cdn.jsdelivr.net/npm/meshoptimizer@0.22.0/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui"></div>
+<script type="module">
+// Lines up every toy animal (toyanimals.js). ?clip=Walk  ?only=cow,pig  ?t=1.2 (freeze at time)  ?hideui
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { buildToyAnimal, TOY_SPECIES } from '../toyanimals.js';
+const q = new URLSearchParams(location.search);
+if (q.has('hideui')) document.body.classList.add('hideui');
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#cfe0f2');
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.35;
+scene.add(new THREE.HemisphereLight(0xb4cdf5, 0x5d7a3e, 0.9));
+const sun = new THREE.DirectionalLight(0xffe2b8, 3.2); sun.position.set(4, 6, 5); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 6, bottom: -6 }); sun.shadow.bias = -0.0005; scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: '#7cc443', roughness: 1 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const keys = q.get('only') ? q.get('only').split(',') : TOY_SPECIES;
+const clip = q.get('clip') || 'Idle';
+const H = { sheep: 1.0, cow: 1.5, pig: 0.9, pony: 1.35, donkey: 1.25, shiba: 0.7, llama: 1.75, alpaca: 1.5, deer: 1.15, fox: 0.66, pug: 0.56, bull: 1.6, husky: 0.8, horse: 1.7, stag: 1.8, wolf: 0.85, zebra: 1.6 };
+const mixers = []; const cols = q.has('sheet') ? 6 : Math.min(keys.length, Math.ceil(Math.sqrt(keys.length * 1.6))); const gap = q.has('sheet') ? 1.5 : 2.3;
+const built = await Promise.all(keys.map((k) => { const h = q.has('sheet') ? 1 : (H[k] || 1); return buildToyAnimal(k, { height: h, speed: 0.5 + h * 0.45 }).then((r) => ({ ...r, h })); }));
+keys.forEach((k, i) => {
+  const { model, clips, box, h } = built[i];
+  const s = h / (box.max.y - box.min.y); model.scale.setScalar(s); model.position.y = -box.min.y * s;
+  const g = new THREE.Group(); g.add(model);
+  const r = Math.floor(i / cols), c = i % cols;
+  g.position.set((c - (cols - 1) / 2) * gap, 0, -r * gap * (q.has('sheet') ? 0.75 : 1.1)); g.rotation.y = q.has("side") ? Math.PI / 2 : q.has("front") ? 0.25 : 0.6;
+  scene.add(g);
+  const m = new THREE.AnimationMixer(model); const a = m.clipAction(clips[clip] || clips.Idle); a.play(); a.time = (i * 0.37) % a.getClip().duration; mixers.push(m);
+});
+// frame everything: fit the bounding box from a 3/4-front view
+const bb = new THREE.Box3().setFromObject(scene.children.filter((o) => o.isGroup).reduce((g, o) => (g.add(o.clone()), g), new THREE.Group()));
+const ctr = bb.getCenter(new THREE.Vector3()), sz = bb.getSize(new THREE.Vector3());
+const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 200);
+const view = new THREE.Vector3(0, q.has('low') ? 0.12 : 0.32, 1).normalize();
+const fitW = sz.x / 2 / Math.tan((30 * Math.PI / 360)) / cam.aspect, fitH = Math.max(sz.y, sz.z * 0.5) / 2 / Math.tan(30 * Math.PI / 360);
+cam.position.copy(ctr).addScaledVector(view, Math.max(fitW, fitH) * 1.15 + sz.z * 0.5); cam.lookAt(ctr);
+const ui = document.getElementById('ui');
+for (const n of ['Idle', 'Idle_2', 'Idle_Headlow', 'Eating', 'Walk', 'Gallop', 'Jump_toIdle', 'Idle_HitReact_Left']) { const b = document.createElement('button'); b.textContent = n; b.onclick = () => { q.set('clip', n); location.search = q; }; ui.append(b); }
+const clock = new THREE.Clock();
+if (q.has('t')) { for (const m of mixers) m.update(+q.get('t')); renderer.render(scene, cam); window.READY = true; }
+else { (function loop() { requestAnimationFrame(loop); const dt = clock.getDelta(); for (const m of mixers) m.update(dt); renderer.render(scene, cam); window.READY = true; })(); }
+</script>
+</body>
+</html>

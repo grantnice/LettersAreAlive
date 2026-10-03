@@ -1,6 +1,7 @@
 // world3d.js — the 3D alpine farm for "Letters Are Alive".
 // ES module. Needs an importmap that maps "three" and "three/addons/" (see tools/world3d-demo.html).
-// Assets (CC0, Quaternius) are loaded from ./assets/ next to this file (override with World3D.setAssetBase()).
+// Animals are procedural (toyanimals.js). Nature assets (CC0, Quaternius) load from ./assets/ next to this file
+// (override with World3D.setAssetBase()); the old animal GLBs there are a fallback.
 //
 // API (also on window.World3D):
 //   supported()                                   -> boolean (WebGL2 available)
@@ -19,6 +20,7 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { buildToyAnimal, purgeToyAnimals } from './toyanimals.js';
 
 // ---------------------------------------------------------------------------------------------
 // Roster
@@ -26,23 +28,23 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 // h = target height in metres on the farm (toy-scaled: small animals a bit bigger than life).
 // zone = where it likes to hang out.
 export const WORLD_ANIMALS = [
-  { index: 0, file: 'A_Sheep', displayName: 'Gotland sheep', h: 1.0, zone: 'pasture' },
-  { index: 1, file: 'U_Cow', displayName: 'Fjällko cow', h: 1.5, zone: 'pasture' },
-  { index: 2, file: 'A_Pig', displayName: 'Linderöd pig', h: 0.9, zone: 'yard' },
-  { index: 3, file: 'U_Horse', displayName: 'Gotland pony', h: 1.35, zone: 'pasture' },
-  { index: 4, file: 'U_Donkey', displayName: 'Donkey', h: 1.25, zone: 'pasture' },
-  { index: 5, file: 'U_ShibaInu', displayName: 'Farm dog', h: 0.7, zone: 'yard' },
-  { index: 6, file: 'A_Llama', displayName: 'Llama', h: 1.75, zone: 'pasture' },
-  { index: 7, file: 'U_Alpaca', displayName: 'Alpaca', h: 1.5, zone: 'pasture' },
-  { index: 8, file: 'U_Deer', displayName: 'Roe deer', h: 1.15, zone: 'edge' },
-  { index: 9, file: 'U_Fox', displayName: 'Red fox', h: 0.66, zone: 'edge' },
-  { index: 10, file: 'A_Pug', displayName: 'Pug', h: 0.56, zone: 'yard' },
-  { index: 11, file: 'U_Bull', displayName: 'Bull', h: 1.6, zone: 'pasture' },
-  { index: 12, file: 'U_Husky', displayName: 'Husky', h: 0.8, zone: 'yard' },
-  { index: 13, file: 'U_Horse_White', displayName: 'White horse', h: 1.7, zone: 'pasture' },
-  { index: 14, file: 'U_Stag', displayName: 'Stag', h: 1.8, zone: 'edge' },
-  { index: 15, file: 'U_Wolf', displayName: 'Wolf', h: 0.85, zone: 'edge' },
-  { index: 16, file: 'A_Zebra', displayName: 'Zebra', h: 1.6, zone: 'pasture' },
+  { index: 0, toy: 'sheep', file: 'A_Sheep', displayName: 'Gotland sheep', h: 1.0, zone: 'pasture' },
+  { index: 1, toy: 'cow', file: 'U_Cow', displayName: 'Fjällko cow', h: 1.5, zone: 'pasture' },
+  { index: 2, toy: 'pig', file: 'A_Pig', displayName: 'Linderöd pig', h: 0.9, zone: 'yard' },
+  { index: 3, toy: 'pony', file: 'U_Horse', displayName: 'Gotland pony', h: 1.35, zone: 'pasture' },
+  { index: 4, toy: 'donkey', file: 'U_Donkey', displayName: 'Donkey', h: 1.25, zone: 'pasture' },
+  { index: 5, toy: 'shiba', file: 'U_ShibaInu', displayName: 'Farm dog', h: 0.7, zone: 'yard' },
+  { index: 6, toy: 'llama', file: 'A_Llama', displayName: 'Llama', h: 1.75, zone: 'pasture' },
+  { index: 7, toy: 'alpaca', file: 'U_Alpaca', displayName: 'Alpaca', h: 1.5, zone: 'pasture' },
+  { index: 8, toy: 'deer', file: 'U_Deer', displayName: 'Roe deer', h: 1.15, zone: 'edge' },
+  { index: 9, toy: 'fox', file: 'U_Fox', displayName: 'Red fox', h: 0.66, zone: 'edge' },
+  { index: 10, toy: 'pug', file: 'A_Pug', displayName: 'Pug', h: 0.56, zone: 'yard' },
+  { index: 11, toy: 'bull', file: 'U_Bull', displayName: 'Bull', h: 1.6, zone: 'pasture' },
+  { index: 12, toy: 'husky', file: 'U_Husky', displayName: 'Husky', h: 0.8, zone: 'yard' },
+  { index: 13, toy: 'horse', file: 'U_Horse_White', displayName: 'White horse', h: 1.7, zone: 'pasture' },
+  { index: 14, toy: 'stag', file: 'U_Stag', displayName: 'Stag', h: 1.8, zone: 'edge' },
+  { index: 15, toy: 'wolf', file: 'U_Wolf', displayName: 'Wolf', h: 0.85, zone: 'edge' },
+  { index: 16, toy: 'zebra', file: 'A_Zebra', displayName: 'Zebra', h: 1.6, zone: 'pasture' },
 ];
 
 const ANIMAL_SCALE = 1.35; // toy exaggeration so a 4-year-old can see (and tap) them
@@ -181,6 +183,7 @@ export function purgeCache() {
   _cache.clear();
   for (const g of _terrainCache.values()) g.dispose();
   _terrainCache.clear(); _nature = null;
+  purgeToyAnimals();
 }
 
 let _nature = null;  // {name: [{geometry, material, matrix}]}  with bottom at y=0
@@ -1381,6 +1384,9 @@ const ZONES = {
 };
 function clipName(n) { const p = n.split('|'); return p[p.length - 1]; }
 async function loadAnimal(def) {
+  if (def.toy && !(typeof window !== 'undefined' && window.W3D_GLB_ANIMALS)) {
+    try { return await loadToyAnimal(def); } catch (e) { console.warn('World3D: toy animal failed, using the model file', def.toy, e); }
+  }
   const g = await loadGLTF('animals/' + def.file + '.glb');
   if (!g.userData._prepared) {
     g.userData._prepared = true;
@@ -1435,6 +1441,16 @@ function smoothNormals(geo) {
     out[i * 3] = a.x; out[i * 3 + 1] = a.y; out[i * 3 + 2] = a.z;
   }
   geo.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+}
+
+// Procedural toy animal (toyanimals.js), scaled to the roster height.
+async function loadToyAnimal(def) {
+  const H = def.h * ANIMAL_SCALE;
+  const { model, clips, box } = await buildToyAnimal(def.toy, { height: H, speed: 0.5 + def.h * 0.45 });
+  const s = H / (box.max.y - box.min.y);
+  model.scale.setScalar(s); model.position.y = -box.min.y * s;
+  model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  return { model, clips, size: new THREE.Vector3().subVectors(box.max, box.min).multiplyScalar(s) };
 }
 
 class Animal {
@@ -1702,6 +1718,9 @@ export function mountFarm(container, opts = {}) {
         const def = WORLD_ANIMALS[i];
         try {
           const loaded = await loadAnimal(def);
+          if (destroyed || state.animals.has(i)) return;
+          // compile its shaders off the critical path so the first frame with it doesn't hitch
+          try { await renderer.compileAsync(loaded.model, camera, scene); } catch (e) { /* older browsers: compile on first draw */ }
           if (destroyed || state.animals.has(i)) return;
           const a = new Animal(def, loaded, farm);
           state.animals.set(i, a);
