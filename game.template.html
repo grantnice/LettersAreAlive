@@ -1244,14 +1244,14 @@ function showFarm(arriving) {
     <rect x="128" y="62" width="44" height="32" fill="var(--snow)"/><rect x="134" y="68" width="32" height="20" fill="#3b2f2a"/>
     <rect x="52" y="120" width="34" height="30" fill="var(--snow)"/><rect x="214" y="120" width="34" height="30" fill="var(--snow)"/></svg>`;
   S.items.forEach(it => { const s = SHOP.find(x => x.id === it.id); s && farm.append(h("div", { class: "deco", style: `left:${it.x}%;top:${it.y}%` }, s.e)); });
-  S.animals.forEach((idx, k) => {
+  farmAnimals().forEach((idx, k) => {
     const a = LEVELS[idx].animal;
     const x = 30 + ((k * 37) % 55), y = 38 + ((k * 23) % 42);
     farm.append(h("button", { class: "critter", style: `left:${x}%;top:${y}%;--t:${7 + (k % 4) * 2}s;--w:${40 + (k % 3) * 30}px`,
       "aria-label": a.name, onclick: e => { const s = e.currentTarget.firstChild; s.classList.remove("pop"); void s.offsetWidth; s.classList.add("pop"); say("a_" + idx); } },
       h("span", null, a.e), h("span", { class: "name" }, a.name)));
   });
-  if (!S.animals.length) farm.append(h("div", { class: "bubble empty-farm" }, "Your farm is waiting for friends. Master Level 1 and a Gotland sheep will move in!"));
+  if (!farmAnimals().length) farm.append(h("div", { class: "bubble empty-farm" }, "Your farm is waiting for friends. Master Level 1 and a Gotland sheep will move in!"));
   const shop = h("div", { class: "shop", "aria-label": "Farm shop" }, SHOP.map(s => h("button", {
     disabled: S.stars < s.cost, "aria-label": `Buy ${s.id} for ${s.cost} stars`,
     onclick: () => { if (S.stars < s.cost) return; addStars(-s.cost); S.items.push({ id: s.id, x: 8 + rand(84), y: 30 + rand(55) }); save(); arpeggio(); showFarm(); } },
@@ -1268,17 +1268,19 @@ function shopBar(onBuy) {
   draw();
   return shop;
 }
+/* developer mode shows every animal on the farm (so a grown-up can preview them); otherwise only earned ones */
+const farmAnimals = () => S.dev ? LEVELS.map((_, i) => i) : S.animals;
 function showFarm3D(arriving) {
   const host = h("div", { class: "farm3d" });
   const tag = h("div", { class: "bubble farm-tag", hidden: true });
   const loading = h("div", { class: "bubble farm-tag" }, "Opening the farm…");
-  const empty = S.animals.length ? null : h("div", { class: "bubble farm-tag", style: "top:auto;bottom:120px" }, "Your farm is waiting for friends. Master Level 1 and a Gotland sheep will move in!");
+  const empty = farmAnimals().length ? null : h("div", { class: "bubble farm-tag", style: "top:auto;bottom:120px" }, "Your farm is waiting for friends. Master Level 1 and a Gotland sheep will move in!");
   let tagTimer = null;
-  const shop = shopBar(() => farm3d && farm3d.update({ animals: S.animals, items: S.items.map(i => i.id) }));
+  const shop = shopBar(() => farm3d && farm3d.update({ animals: farmAnimals(), items: S.items.map(i => i.id) }));
   const gen = screen("farm", bar(homeBtn(), h("h2", { style: "text-align:center;font-size:30px;color:var(--falu);text-shadow:0 2px 0 var(--snow)" }, "My Farm"), starChip()), host, tag, loading, empty, shop);
   try {
     farm3d = window.World3D.mountFarm(host, {
-      animals: S.animals, items: S.items.map(i => i.id), arriving,
+      animals: farmAnimals(), items: S.items.map(i => i.id), arriving,
       onAnimalTap: i => {
         say("a_" + i);
         tag.textContent = `${LEVELS[i].animal.e} ${LEVELS[i].animal.name}`; tag.hidden = false;
@@ -1486,23 +1488,32 @@ function letterSoundList() {
   for (const lv of LEVELS) for (const x of lv.sounds) if (!seen.has(x.p)) { seen.add(x.p); out.push({ ...x, n: lv.n }); }
   return out;
 }
-function showRecorder(i = 0) {
+/* every word the game says, in level order; words the build couldn't confirm come first so they get recorded */
+function recordWordList() {
+  const seen = new Set(), out = [], shaky = new Set(DATA.unconfirmed || []);
+  LEVELS.forEach(lv => lv.words.forEach(w => { if (!seen.has(w.w)) { seen.add(w.w); out.push({ g: w.w, key: wordClip(w.w), n: lv.n, shaky: shaky.has(w.w) }); } }));
+  DATA.extraWords.forEach(w => { if (!seen.has(w.w)) { seen.add(w.w); out.push({ g: w.w, key: wordClip(w.w), n: LEVELS.length, shaky: shaky.has(w.w) }); } });
+  return [...out.filter(x => x.shaky), ...out.filter(x => !x.shaky)];
+}
+function showRecorder(i = 0, mode = "sounds") {
   screen.keepStudio = true;
   setTimeout(() => { screen.keepStudio = false; }, 0);
-  const list = letterSoundList(), x = list[i], key = snd(x.p);
-  const ex = (wordsUpTo(LEVELS.length).find(w => w.t.some(t => t.p === x.p)) || {}).w;
+  const words = mode === "words";
+  const list = words ? recordWordList() : letterSoundList().map(y => ({ ...y, key: snd(y.p) }));
+  const x = list[i], key = x.key;
+  const ex = words ? null : (wordsUpTo(LEVELS.length).find(w => w.t.some(t => t.p === x.p)) || {}).w;
   const status = h("p", { style: "min-height:1.5em;font-weight:700" }, MINE[key] ? "✓ Your recording is in use." : "Using the computer voice.");
   const dots = h("div", { style: "display:flex;flex-wrap:wrap;gap:4px" }, list.map((y, j) =>
-    h("button", { class: "gs" + (MINE[snd(y.p)] ? " g" : ""), style: j === i ? "outline:3px solid var(--sv-blue)" : "", onclick: () => showRecorder(j) }, y.g)));
+    h("button", { class: "gs" + (MINE[y.key] ? " g" : ""), title: y.shaky ? "The computer voice may say this one badly" : "", style: (j === i ? "outline:3px solid var(--sv-blue);" : "") + (y.shaky && !MINE[y.key] ? "border:2px dashed var(--falu);" : ""), onclick: () => showRecorder(j, mode) }, y.g)));
   const meter = h("div", { class: "voiceline", style: "position:relative;left:0;right:0;width:100%;max-width:420px" }, h("i"));
   const recBtn = h("button", { class: "big-btn", onclick: async () => {
     if (Studio.take) { Studio.finish(!Studio.take.started); return; }
     if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { status.textContent = "Recording needs the game opened from its web address (https) in Safari or Chrome."; return; }
     try { await Studio.open(); } catch { status.textContent = "The microphone was blocked. Allow it for this site (Safari: aA menu → Website Settings → Microphone) and try again."; return; }
-    recBtn.textContent = "■ Stop"; status.textContent = "Listening… say the sound now. It stops by itself when you finish.";
+    recBtn.textContent = "■ Stop"; status.textContent = `Listening… say the ${words ? "word" : "sound"} now. It stops by itself when you finish.`;
     Studio.arm(async got => {
       recBtn.textContent = "● Record";
-      if (!got) { status.textContent = "I didn't catch a sound. Tap ● Record and try again, a little closer to the iPad."; return; }
+      if (!got) { status.textContent = "I didn't catch anything. Tap ● Record and try again, a little closer to the iPad."; return; }
       const wav = wavBytes(got.samples, got.rate);
       MINE[key] = wav; delete BUF[key];
       try { await RecDB.set(key, wav); } catch {}
@@ -1513,22 +1524,27 @@ function showRecorder(i = 0) {
     });
   } }, "● Record");
   screen("meadow", bar(h("button", { class: "round", "aria-label": "Back to grown-ups corner", onclick: showParent }, "⚙️"),
-    h("h2", { style: "text-align:center;font-size:26px" }, "Record letter sounds"), null),
+    h("h2", { style: "text-align:center;font-size:26px" }, words ? "Record words" : "Record letter sounds"), null),
     h("div", { class: "stage scroll" }, h("div", { class: "parent" },
-      h("p", null, "Say just the sound, not the letter's name. Hold continuous sounds for about a second (mmm, sss, aaa, fff). Keep stop sounds short and crisp: b, not buh. Tap ● Record once, then just say it: recording starts when you speak and stops when you go quiet. The bar shows what the microphone hears. Your recordings replace the computer voice everywhere in the game."),
+      h("div", { class: "prow" },
+        h("button", { class: "pbtn", style: words ? "" : "outline:3px solid var(--sv-blue)", onclick: () => showRecorder(0, "sounds") }, "Letter sounds"),
+        h("button", { class: "pbtn", style: words ? "outline:3px solid var(--sv-blue)" : "", onclick: () => showRecorder(0, "words") }, "Words")),
+      h("p", null, words
+        ? "Say each word once, clearly and at a normal pace, the way you'd read it to him. Words with a dashed red border are ones the computer voice may get wrong, so they're listed first. Tap ● Record once, then just say it: recording starts when you speak and stops when you go quiet. Your recording replaces the computer voice for that word everywhere in the game."
+        : "Say just the sound, not the letter's name. Hold continuous sounds for about a second (mmm, sss, aaa, fff). Keep stop sounds short and crisp: b, not buh. Tap ● Record once, then just say it: recording starts when you speak and stops when you go quiet. The bar shows what the microphone hears. Your recordings replace the computer voice everywhere in the game."),
       dots,
       h("div", { style: "display:flex;align-items:center;gap:20px;flex-wrap:wrap" },
-        h("div", { class: "tile", style: "font-size:84px;min-width:130px;height:130px" }, x.g),
-        h("div", null, h("div", { style: "font-size:22px;font-weight:800" }, `Sound ${i + 1} of ${list.length}`),
+        h("div", { class: "tile", style: `font-size:${words ? 64 : 84}px;min-width:130px;height:130px;padding:0 16px` }, x.g),
+        h("div", null, h("div", { style: "font-size:22px;font-weight:800" }, `${words ? "Word" : "Sound"} ${i + 1} of ${list.length}`),
           h("div", { class: "sub" }, (ex ? `as in "${ex}" · ` : "") + `Level ${x.n}`))),
       meter,
       h("div", { class: "prow" }, recBtn,
         h("button", { class: "pbtn", onclick: () => say(key) }, "▶ Play"),
-        MINE[key] ? h("button", { class: "pbtn", onclick: async () => { delete MINE[key]; delete BUF[key]; try { await RecDB.del(key); } catch {} showRecorder(i); } }, "Use computer voice") : null),
+        MINE[key] ? h("button", { class: "pbtn", onclick: async () => { delete MINE[key]; delete BUF[key]; try { await RecDB.del(key); } catch {} showRecorder(i, mode); } }, "Use computer voice") : null),
       status,
       h("div", { class: "prow" },
-        h("button", { class: "pbtn", disabled: i === 0, onclick: () => showRecorder(i - 1) }, "← Back"),
-        h("button", { class: "pbtn", disabled: i === list.length - 1, onclick: () => showRecorder(i + 1) }, "Next →")),
+        h("button", { class: "pbtn", disabled: i === 0, onclick: () => showRecorder(i - 1, mode) }, "← Back"),
+        h("button", { class: "pbtn", disabled: i === list.length - 1, onclick: () => showRecorder(i + 1, mode) }, "Next →")),
       h("h3", null, "Keep your recordings safe"),
       h("p", null, "They're saved in this browser. Save a file to back them up or move them to another device, or send it to Claude to build your voice into the game for good."),
       h("div", { class: "prow" },
@@ -1544,7 +1560,7 @@ function showRecorder(i = 0) {
     meter.classList.toggle("on", !!Studio.stream && lvl > thr);
     requestAnimationFrame(drawMeter);
   })();
-  Studio.open().then(() => { if (screenGen === myGen && !Studio.take) status.textContent = (MINE[key] ? "✓ Your recording is in use. " : "") + "Microphone on. Tap ● Record, then say the sound."; })
+  Studio.open().then(() => { if (screenGen === myGen && !Studio.take) status.textContent = (MINE[key] ? "✓ Your recording is in use. " : "") + `Microphone on. Tap ● Record, then say the ${words ? "word" : "sound"}.`; })
     .catch(() => { status.textContent = "Tap ● Record to turn on the microphone."; });
 }
 function toB64(buf) { let s = ""; const b = new Uint8Array(buf); for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); }
@@ -1786,7 +1802,8 @@ function showParent() {
       h("p", null, "Never tell him the word before he chooses. Let him slide the frog and say each sound, then say it fast. If he's stuck, have him slide again more slowly and stretch the sounds. Ten to fifteen minutes a day beats a long session."),
       h("div", { class: "prow" }, h("button", { class: "pbtn", onclick: showTenets }, "📖 Read the teaching principles (research notes)"),
         h("button", { class: "pbtn", onclick: showSoundCheck }, "🔊 Sound check"),
-        h("button", { class: "pbtn", onclick: () => showRecorder(0) }, "🎙️ Record my letter sounds")),
+        h("button", { class: "pbtn", onclick: () => showRecorder(0) }, "🎙️ Record my letter sounds"),
+        h("button", { class: "pbtn", onclick: () => showRecorder(0, "words") }, "🎙️ Record words")),
       h("h3", null, "Sound accuracy"), h("p", null, "Includes words that use each sound. Green is 90% or better, yellow 70–89%, orange below 70%."), soundGrid,
       h("h3", null, "Words to watch"), h("p", null, tough.length ? tough.join(", ") : "None yet."),
       h("h3", null, "Recent practice"), h("div", { style: "display:grid;gap:4px;font-variant-numeric:tabular-nums" }, recent.length ? recent : "No sessions yet."),

@@ -408,11 +408,96 @@ SOUNDS_ALIKE = {"sun": {"son"}, "bee": {"be", "b"}, "see": {"sea", "c"}, "i": {"
                 "five": {"5"}, "six": {"6"}, "ten": {"10"}, "red": {"read"}, "ant": {"aunt"}, "a": {"uh", "ah"}}
 
 
+# ---- Kokoro (sherpa-onnx): a far clearer voice for words, sentences and prompts --------------
+# Model: kokoro-en-v0_19 from the sherpa-onnx tts-models release, unpacked into voice/.
+# Piper stays for the isolated letter sounds (it takes raw phonemes) and as a fallback.
+KOKORO_DIR = ROOT / "voice" / "kokoro-en-v0_19"
+KOKORO_SPEAKER = 1        # af_bella: warm, clear American voice
+_kokoro = None
+
+
+def kokoro():
+    global _kokoro
+    if _kokoro is None:
+        _kokoro = False
+        if (KOKORO_DIR / "model.onnx").exists():
+            import sherpa_onnx
+            d = KOKORO_DIR
+            cfg = sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
+                kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(model=str(d / "model.onnx"), voices=str(d / "voices.bin"),
+                                                               tokens=str(d / "tokens.txt"), data_dir=str(d / "espeak-ng-data")),
+                num_threads=8), max_num_sentences=1)
+            _kokoro = sherpa_onnx.OfflineTts(cfg)
+    return _kokoro
+
+
+def kokoro_say(text, speed=1.0):
+    a = kokoro().generate(text, sid=KOKORO_SPEAKER, speed=speed)
+    return np.array(a.samples, np.float64) * 32767, a.sample_rate
+
+
+def trim(x, rate, lead=0.03, tail=0.08):
+    loud = np.where(np.abs(x) > np.abs(x).max() * 0.02)[0]
+    if not len(loud):
+        return x
+    y = x[max(0, loud[0] - int(rate * lead)): loud[-1] + int(rate * tail)].copy()
+    ramp = min(len(y) // 8, int(rate * 0.006))
+    y[:ramp] *= np.linspace(0, 1, ramp)
+    return y
+
+
+def after_pause(x, rate):
+    """For "Say... sat." keep only what follows the last real pause (the word itself)."""
+    fr = int(rate * 0.01)
+    rms = np.array([np.sqrt((x[i:i + fr] ** 2).mean()) for i in range(0, len(x) - fr, fr)])
+    thr, best, i = rms.max() * 0.04, None, 0
+    while i < len(rms):
+        if rms[i] < thr:
+            j = i
+            while j < len(rms) and rms[j] < thr:
+                j += 1
+            if j - i >= 9 and j < len(rms) and rms[j:].max() > thr * 4:
+                best = j
+            i = j
+        else:
+            i += 1
+    return None if best is None else trim(x[max(0, best * fr - int(rate * 0.02)):], rate)
+
+
+# Short words alone are hard for any voice; these ways of saying a word are tried in order and the
+# first take the recognizer hears correctly wins.
+KOKORO_TAKES = [("{w}.", 0.9, False), ("{w}!", 0.85, False), ("{W}.", 1.0, False),
+                ("Say... {w}.", 0.9, True), ("Now say... {w}!", 0.85, True), ("The word is... {w}.", 0.9, True)]
+
+
+def kokoro_word(word):
+    if not listener():
+        x, rate = kokoro_say(word + ".", 0.9)
+        return trim(x, rate), rate
+    context, crate = kokoro_say("The word is")
+    ok = {word} | SOUNDS_ALIKE.get(word, set())
+    first = None
+    for fmt, speed, cut in KOKORO_TAKES:
+        x, rate = kokoro_say(fmt.format(w=word, W=word.capitalize()), speed)
+        y = after_pause(x, rate) if cut else trim(x, rate)
+        if y is None:
+            continue
+        first = first or (y, rate)
+        if ok & set(heard_as(y, rate, context)):
+            return y, rate
+    print(f"  no clear take for '{word}'; using the first one (record it in the studio if it sounds off)")
+    UNCONFIRMED.add(word)
+    return first
+
+
 def synth(voice, text, kind):
     is_phoneme = kind in ("hold", "stop")
     if kind == "single":
-        x, rate = word_from_sentence(text)
+        x, rate = kokoro_word(text) if kokoro() else word_from_sentence(text)
         return encode(x, rate)
+    if kind == "word" and kokoro():
+        x, rate = kokoro_say(text, 0.95)
+        return encode(trim(x, rate, tail=0.12), rate)
     if text.startswith("from:"):
         x, rate = vowel_from_word(voice, text[5:])
         body = steady_part(x, rate)
@@ -475,7 +560,7 @@ def main():
     voice = None
     audio = {}
     for name, (text, kind) in sorted(clips(data).items()):
-        key = f"{text}|{kind}"
+        key = f"{text}|{kind}" + ("|kokoro" if kind in ("single", "word") and kokoro() else "")
         if key not in cache:
             voice = voice or PiperVoice.load(str(ROOT / "voice" / "en-us-lessac-medium.onnx"))
             cache[key] = synth(voice, text, kind)
@@ -488,7 +573,7 @@ def main():
                 x = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(float)
                 audio[name] = encode(x, w.getframerate())
         print(f"using {len(json.loads(recorded.read_text()).get('sounds', {}))} recorded clips from voice/recordings.json")
-    used = {f"{t}|{k}" for t, k in clips(data).values()}
+    used = {f"{t}|{k}" + ("|kokoro" if k in ("single", "word") and kokoro() else "") for t, k in clips(data).values()}
     cache_file.write_text(json.dumps({k: v for k, v in cache.items() if k in used}))
     unconfirmed_file = ROOT / "docs" / "unconfirmed-words.txt"
     if UNCONFIRMED:

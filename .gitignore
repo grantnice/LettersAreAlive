@@ -4,3 +4,4 @@ voice/*.onnx.json
 __pycache__/
 voice/sherpa-onnx-*
 __pycache__/
+voice/kokoro-*
