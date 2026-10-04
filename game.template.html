@@ -1493,6 +1493,7 @@ function recordWordList() {
   const seen = new Set(), out = [], shaky = new Set(DATA.unconfirmed || []);
   LEVELS.forEach(lv => lv.words.forEach(w => { if (!seen.has(w.w)) { seen.add(w.w); out.push({ g: w.w, key: wordClip(w.w), n: lv.n, shaky: shaky.has(w.w) }); } }));
   DATA.extraWords.forEach(w => { if (!seen.has(w.w)) { seen.add(w.w); out.push({ g: w.w, key: wordClip(w.w), n: LEVELS.length, shaky: shaky.has(w.w) }); } });
+  DATA.sentences.forEach(x => x.s.toLowerCase().split(/\s+/).forEach(w => { if (w && !seen.has(w) && AUDIO[wordClip(w)]) { seen.add(w); out.push({ g: w, key: wordClip(w), n: LEVELS.length, shaky: shaky.has(w) }); } }));
   return [...out.filter(x => x.shaky), ...out.filter(x => !x.shaky)];
 }
 function showRecorder(i = 0, mode = "sounds") {
